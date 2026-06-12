@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login — Programming Bitcoin OJ</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+  <script src="/theme.js"></script>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="min-h-full bg-zinc-950 text-zinc-100 font-sans antialiased flex items-center justify-center p-4">
+  <div class="w-full max-w-md">
+    <div class="text-center mb-8">
+      <div class="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-500/15 text-2xl text-amber-400 border border-amber-500/30 shadow-glow mb-4">₿</div>
+      <h1 class="text-2xl font-bold text-zinc-50">BTC-OJ</h1>
+      <p class="mt-2 text-sm text-zinc-400">Learn Bitcoin cryptography through coding exercises from the book.</p>
+    </div>
+
+    <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 sm:p-8 shadow-xl shadow-black/30 backdrop-blur-sm">
+      <div class="flex border-b border-zinc-800 mb-6" role="tablist">
+        <button type="button" id="tab-login" onclick="switchTab('login')"
+          class="auth-tab flex-1 py-2.5 text-sm font-medium text-amber-400 border-b-2 border-amber-500 -mb-px transition">
+          Login
+        </button>
+        <button type="button" id="tab-register" onclick="switchTab('register')"
+          class="auth-tab flex-1 py-2.5 text-sm font-medium text-zinc-500 border-b-2 border-transparent -mb-px hover:text-zinc-300 transition">
+          Register
+        </button>
+      </div>
+
+      <form id="login-form" class="space-y-4">
+        <div>
+          <label for="login-email" class="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">Email</label>
+          <input type="email" id="login-email" placeholder="you@example.com" value="admin@example.com" required autocomplete="email"
+            class="w-full rounded-lg border-zinc-700 bg-zinc-950 text-zinc-100 placeholder-zinc-600 focus:border-amber-500 focus:ring-amber-500/20">
+        </div>
+        <div>
+          <label for="login-password" class="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">Password</label>
+          <input type="password" id="login-password" placeholder="••••••••" value="admin1234" required autocomplete="current-password"
+            class="w-full rounded-lg border-zinc-700 bg-zinc-950 text-zinc-100 placeholder-zinc-600 focus:border-amber-500 focus:ring-amber-500/20">
+        </div>
+        <button type="submit" id="login-btn"
+          class="w-full py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 font-semibold text-sm transition shadow-lg shadow-amber-500/20 disabled:opacity-50">
+          Login
+        </button>
+        <p id="login-error" class="text-red-400 text-xs min-h-[1.25rem]"></p>
+      </form>
+
+      <form id="register-form" class="space-y-4 hidden">
+        <div>
+          <label for="reg-username" class="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">Username</label>
+          <input type="text" id="reg-username" placeholder="satoshi" required minlength="3"
+            class="w-full rounded-lg border-zinc-700 bg-zinc-950 text-zinc-100 placeholder-zinc-600 focus:border-amber-500 focus:ring-amber-500/20">
+        </div>
+        <div>
+          <label for="reg-email" class="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">Email</label>
+          <input type="email" id="reg-email" placeholder="you@example.com" required
+            class="w-full rounded-lg border-zinc-700 bg-zinc-950 text-zinc-100 placeholder-zinc-600 focus:border-amber-500 focus:ring-amber-500/20">
+        </div>
+        <div>
+          <label for="reg-password" class="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">Password</label>
+          <input type="password" id="reg-password" placeholder="Min 6 characters" required minlength="6"
+            class="w-full rounded-lg border-zinc-700 bg-zinc-950 text-zinc-100 placeholder-zinc-600 focus:border-amber-500 focus:ring-amber-500/20">
+        </div>
+        <button type="submit" id="register-btn"
+          class="w-full py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 font-semibold text-sm transition shadow-lg shadow-amber-500/20 disabled:opacity-50">
+          Create Account
+        </button>
+        <p id="register-error" class="text-red-400 text-xs min-h-[1.25rem]"></p>
+      </form>
+    </div>
+
+    <p class="text-center text-xs text-zinc-600 mt-6">
+      Inspired by <span class="text-zinc-500">Programming Bitcoin</span> · Practice ECC, keys &amp; scripts
+    </p>
+  </div>
+
+  <script src="/app.js"></script>
+  <script>
+    if (Auth.isLoggedIn()) {
+      window.location.href = new URLSearchParams(location.search).get('next') || '/index.html';
+    }
+
+    const TAB_ACTIVE = 'auth-tab flex-1 py-2.5 text-sm font-medium text-amber-400 border-b-2 border-amber-500 -mb-px transition';
+    const TAB_INACTIVE = 'auth-tab flex-1 py-2.5 text-sm font-medium text-zinc-500 border-b-2 border-transparent -mb-px hover:text-zinc-300 transition';
+
+    function switchTab(tab) {
+      document.getElementById('tab-login').className = tab === 'login' ? TAB_ACTIVE : TAB_INACTIVE;
+      document.getElementById('tab-register').className = tab === 'register' ? TAB_ACTIVE : TAB_INACTIVE;
+      document.getElementById('login-form').classList.toggle('hidden', tab !== 'login');
+      document.getElementById('register-form').classList.toggle('hidden', tab !== 'register');
+      document.getElementById('login-error').textContent = '';
+      document.getElementById('register-error').textContent = '';
+    }
+
+    async function handleAuth(path, body, errorElId, btnId) {
+      const errEl = document.getElementById(errorElId);
+      const btn   = document.getElementById(btnId);
+      errEl.textContent = '';
+      btn.disabled = true;
+      btn.textContent = 'Please wait…';
+      try {
+        const res  = await apiPost(path, body);
+        const data = await res.json();
+        if (!res.ok) { errEl.textContent = data.detail || 'Error'; return; }
+        Auth.set(data.access_token, data.refresh_token);
+        const me = await (await apiGet('/auth/me')).json();
+        Auth.setUser(me);
+        window.location.href = new URLSearchParams(location.search).get('next') || '/index.html';
+      } catch (e) {
+        errEl.textContent = e.message;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = btnId === 'login-btn' ? 'Login' : 'Create Account';
+      }
+    }
+
+    document.getElementById('login-form').addEventListener('submit', e => {
+      e.preventDefault();
+      handleAuth('/auth/login', {
+        email:    document.getElementById('login-email').value,
+        password: document.getElementById('login-password').value,
+      }, 'login-error', 'login-btn');
+    });
+
+    document.getElementById('register-form').addEventListener('submit', e => {
+      e.preventDefault();
+      handleAuth('/auth/register', {
+        username: document.getElementById('reg-username').value,
+        email:    document.getElementById('reg-email').value,
+        password: document.getElementById('reg-password').value,
+      }, 'register-error', 'register-btn');
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,64 @@
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Virtual environments ──────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+.env
+.conda/
+
+# ── Databases (never commit these) ───────────────────────────────────────────
+backend/data/
+backend/*.db
+backend/*.db-journal
+backend/*.db-shm
+backend/*.db-wal
+
+# ── Log files ─────────────────────────────────────────────────────────────────
+backend/*.log
+*.log
+
+# ── Secrets / environment files ──────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── macOS ────────────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ── IDEs ─────────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# ── Docker ───────────────────────────────────────────────────────────────────
+docker-compose.override.yml
+
+# ── Node (frontend tooling, if any) ──────────────────────────────────────────
+node_modules/
+npm-debug.log*
+
+# ── Alembic ───────────────────────────────────────────────────────────────────
+# Generated migration files are intentionally committed; only ignore caches.
+backend/alembic/__pycache__/
+backend/alembic/versions/__pycache__/
+
+# ── Test / script artefacts ───────────────────────────────────────────────────
+backend/tests/__pycache__/
+backend/scripts/__pycache__/
+.pytest_cache/
+*.coverage
+htmlcov/
