@@ -91,6 +91,7 @@ async function renderNav(activePage = '') {
 
   const links = [
     { href: '/index.html', label: 'Problems', key: 'problems' },
+    { href: '/submissions.html', label: 'Submissions', key: 'submissions' },
   ];
   if (user?.role === 'admin') {
     links.push({ href: '/admin/index.html', label: 'Admin', key: 'admin' });

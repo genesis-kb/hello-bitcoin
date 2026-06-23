@@ -13,12 +13,13 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
-
+from arq import create_pool
+from arq.connections import RedisSettings
 
 from config import ALLOWED_ORIGINS, JUDGE_IMAGE, REDIS_URL, RATE_LIMIT_AUTH, RATE_LIMIT_SUBMIT
 from db import get_db, init_db
 from limiter import limiter
-from routes import auth, problems
+from routes import auth, problems, submissions
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,7 +40,22 @@ async def lifespan(app: FastAPI):
     logger.info("Initialising database…")
     await init_db()
 
+    logger.info("Connecting to Redis queue (%s)…", REDIS_URL)
+    parsed_url = urlparse(REDIS_URL)
+    redis_settings = RedisSettings(
+        host=parsed_url.hostname or "localhost",
+        port=parsed_url.port or 6379,
+        database=int(parsed_url.path.lstrip("/")) if parsed_url.path.lstrip("/") else 0,
+    )
+    app.state.redis_pool = await create_pool(redis_settings)
+    app.state.limiter = limiter
+
     yield
+
+    # ── Shutdown ─────────────────────────────────────────────────────────────
+    logger.info("Closing Redis connection…")
+    if hasattr(app.state, "redis_pool"):
+        await app.state.redis_pool.close()
 
 
 app = FastAPI(
@@ -82,7 +98,12 @@ async def health(request: Request):
     except Exception as exc:
         checks["database"] = f"error: {exc}"
 
-
+    # Redis check
+    try:
+        await request.app.state.redis_pool.ping()
+        checks["redis"] = "ok"
+    except Exception as exc:
+        checks["redis"] = f"error: {exc}"
 
     all_ok = all(v == "ok" for v in checks.values())
     status_code = 200 if all_ok else 503
@@ -92,6 +113,7 @@ async def health(request: Request):
 # ── API routes ────────────────────────────────────────────────────────────────
 app.include_router(auth.router, prefix="/api")
 app.include_router(problems.router, prefix="/api")
+app.include_router(submissions.router, prefix="/api")
 
 
 # ── Frontend (served as static files) ────────────────────────────────────────

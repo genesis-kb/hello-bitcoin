@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Problem — Programming Bitcoin OJ</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+  <script src="/theme.js"></script>
+  <link rel="stylesheet" href="/style.css">
+  <script type="importmap">{"imports":{
+    "codemirror":          "https://esm.sh/codemirror@6",
+    "@codemirror/state":   "https://esm.sh/@codemirror/state@6",
+    "@codemirror/view":    "https://esm.sh/@codemirror/view@6",
+    "@codemirror/commands": "https://esm.sh/@codemirror/commands@6",
+    "@codemirror/lang-python": "https://esm.sh/@codemirror/lang-python@6",
+    "@codemirror/lang-javascript": "https://esm.sh/@codemirror/lang-javascript@6",
+    "@codemirror/lang-rust": "https://esm.sh/@codemirror/lang-rust@6",
+    "@codemirror/theme-one-dark": "https://esm.sh/@codemirror/theme-one-dark@6"
+  }}</script>
+</head>
+<body class="min-h-full bg-zinc-950 text-zinc-100 font-sans antialiased flex flex-col">
+  <nav class="sticky top-0 z-50 border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-md shrink-0">
+    <div class="max-w-[1400px] mx-auto px-4 h-14 flex items-center justify-between gap-4">
+      <a href="/index.html" class="flex items-center gap-2.5 font-bold text-zinc-100 no-underline hover:no-underline shrink-0">
+        <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400 text-base border border-amber-500/30">₿</span>
+        <span><span class="text-amber-400">BTC</span>-OJ</span>
+      </a>
+      <div class="flex items-center gap-6" id="nav-links"></div>
+      <div id="nav-user" class="shrink-0"></div>
+    </div>
+  </nav>
+
+  <div class="flex-1 max-w-[1400px] w-full mx-auto px-4 py-5 grid grid-cols-1 lg:grid-cols-2 gap-5 min-h-0 lg:h-[calc(100vh-3.5rem)]">
+    <div class="overflow-y-auto pr-1 lg:pr-2" id="problem-left">
+      <div class="flex items-center justify-center py-16 text-zinc-500"><span class="spinner"></span></div>
+    </div>
+
+    <div class="flex flex-col gap-4 min-h-0 lg:overflow-y-auto">
+      <div class="flex flex-col flex-1 min-h-[280px]">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-semibold uppercase tracking-wider text-zinc-500">Code Editor</span>
+          <select id="lang-select" onchange="changeLang(this.value)"
+            class="text-xs rounded-lg border-zinc-700 bg-zinc-900 text-zinc-200 py-1 pl-2 pr-7 focus:border-amber-500 focus:ring-amber-500/20 w-auto">
+            <option value="python3">Python 3</option>
+            <option value="javascript">JavaScript</option>
+            <option value="rust">Rust</option>
+          </select>
+        </div>
+        <div class="editor-wrap flex-1 rounded-xl border border-zinc-800 overflow-hidden bg-zinc-900/50" id="editor-wrap"></div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-3">
+        <button type="button" id="submit-btn" onclick="submitCode()"
+          class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 font-semibold text-sm transition shadow-lg shadow-amber-500/20 disabled:opacity-50">
+          ▶ Submit
+        </button>
+        <a href="#" id="my-subs-link" class="text-xs text-zinc-500 hover:text-amber-400 no-underline transition">My submissions</a>
+        <span id="submitting-indicator" class="hidden text-xs text-zinc-500 flex items-center gap-2">
+          <span class="spinner"></span> Judging…
+        </span>
+      </div>
+
+      <div id="verdict-box" class="hidden rounded-xl border p-4 text-sm"></div>
+
+      <div id="recent-subs" class="hidden">
+        <h4 class="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2">Recent Submissions</h4>
+        <div id="recent-subs-list" class="rounded-lg border border-zinc-800 divide-y divide-zinc-800/80 bg-zinc-900/30"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+  <script type="module">
+    import { EditorView, keymap } from '@codemirror/view';
+    import { EditorState } from '@codemirror/state';
+    import { defaultKeymap, indentWithTab } from '@codemirror/commands';
+    import { python } from '@codemirror/lang-python';
+    import { javascript } from '@codemirror/lang-javascript';
+    import { rust } from '@codemirror/lang-rust';
+    import { oneDark } from '@codemirror/theme-one-dark';
+
+    let editorView = null;
+    let currentProblem = null;
+    let currentLang = 'python3';
+    const savedCode = {};
+
+    window.changeLang = function(lang) {
+      if (editorView) savedCode[currentLang] = editorView.state.doc.toString();
+      currentLang = lang;
+      const code = savedCode[lang] || (currentProblem?.starter_code?.[lang] ?? '');
+      buildEditor(code, lang);
+    };
+
+    function langExtension(lang) {
+      if (lang === 'python3')    return python();
+      if (lang === 'javascript') return javascript();
+      if (lang === 'rust')       return rust();
+      return python();
+    }
+
+    function buildEditor(code, lang) {
+      const wrap = document.getElementById('editor-wrap');
+      if (editorView) editorView.destroy();
+      editorView = new EditorView({
+        state: EditorState.create({
+          doc: code,
+          extensions: [
+            oneDark,
+            langExtension(lang),
+            keymap.of([...defaultKeymap, indentWithTab]),
+            EditorView.lineWrapping,
+          ],
+        }),
+        parent: wrap,
+      });
+    }
+
+    async function init() {
+      await renderNav('problems');
+      requireAuth();
+
+      const params = new URLSearchParams(location.search);
+      const problemId = params.get('id');
+      if (!problemId) { window.location.href = '/index.html'; return; }
+
+      document.getElementById('my-subs-link').href = `/submissions.html?problem=${problemId}`;
+
+      const res = await apiGet(`/problems/${problemId}`);
+      if (!res.ok) {
+        document.getElementById('problem-left').innerHTML =
+          `<div class="text-center py-16 text-zinc-500"><p>Problem not found.</p>
+           <a href="/index.html" class="text-amber-400 no-underline mt-2 inline-block">← Back</a></div>`;
+        return;
+      }
+
+      currentProblem = await res.json();
+      document.title = `${currentProblem.title} — BTC-OJ`;
+      renderDescription(currentProblem);
+      buildEditor(currentProblem.starter_code?.['python3'] ?? '', 'python3');
+      await loadRecentSubs(problemId);
+    }
+
+    function renderDescription(p) {
+      const left = document.getElementById('problem-left');
+      const samples = p.sample_cases.map((tc, i) => `
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+          <div>
+            <label class="text-[11px] font-medium uppercase tracking-wider text-zinc-500 block mb-1">Sample Input ${i+1}</label>
+            <pre class="m-0 p-3 rounded-lg bg-zinc-950 border border-zinc-800 text-xs font-mono text-zinc-300 overflow-x-auto">${escHtml(tc.input)}</pre>
+          </div>
+          <div>
+            <label class="text-[11px] font-medium uppercase tracking-wider text-zinc-500 block mb-1">Sample Output ${i+1}</label>
+            <pre class="m-0 p-3 rounded-lg bg-zinc-950 border border-zinc-800 text-xs font-mono text-zinc-300 overflow-x-auto">${escHtml(tc.expected_output)}</pre>
+          </div>
+        </div>
+      `).join('');
+
+      left.innerHTML = `
+        <p class="text-xs text-zinc-500 mb-3">
+          <a href="/index.html" class="text-amber-400/90 hover:text-amber-400 no-underline">← Problems</a>
+          <span class="text-zinc-700 mx-2">/</span>
+          Chapter ${p.chapter}
+          <span class="text-zinc-700 mx-2">·</span>
+          ${p.time_limit}s
+          <span class="text-zinc-700 mx-2">·</span>
+          ${p.memory_limit}MB
+        </p>
+        <h1 class="text-xl font-bold text-zinc-50 mb-4">${escHtml(p.title)}</h1>
+        <div class="problem-desc" id="prob-desc"></div>
+        ${p.sample_cases.length ? `
+          <div class="mt-6 pt-6 border-t border-zinc-800">
+            <h4 class="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-3">Sample Cases</h4>
+            ${samples}
+          </div>` : ''}
+      `;
+      renderMarkdown(p.description, document.getElementById('prob-desc'));
+    }
+
+    function renderMarkdown(md, el) {
+      let html = escHtml(md)
+        .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+        .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+        .replace(/^#### (.+)$/gm, '<h4>$1</h4>')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+        .replace(/```[\w]*\n([\s\S]*?)```/g, (_, code) => `<pre>${code}</pre>`)
+        .replace(/^\| (.+)$/gm, (m) => {
+          const cells = m.slice(2).split(' | ');
+          return '<tr>' + cells.map(c => `<td>${c}</td>`).join('') + '</tr>';
+        })
+        .replace(/(<tr>.*<\/tr>\n?)+/g, m => `<table>${m}</table>`)
+        .replace(/^---$/gm, '<hr>')
+        .split('\n\n').map(p => {
+          if (p.startsWith('<h') || p.startsWith('<pre') || p.startsWith('<table') || p.startsWith('<hr')) return p;
+          return `<p>${p}</p>`;
+        }).join('\n');
+      el.innerHTML = html;
+    }
+
+    window.submitCode = async function() {
+      if (!Auth.isLoggedIn()) { redirectToLogin(location.href); return; }
+      const code = editorView.state.doc.toString().trim();
+      if (!code) return;
+
+      const btn = document.getElementById('submit-btn');
+      const ind = document.getElementById('submitting-indicator');
+      const vbox = document.getElementById('verdict-box');
+      btn.disabled = true;
+      ind.classList.remove('hidden');
+      vbox.classList.add('hidden');
+
+      const res = await apiPost('/submissions', {
+        problem_id: currentProblem.id,
+        language: currentLang,
+        source: code,
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        vbox.className = 'rounded-xl border border-red-500/40 bg-red-500/5 p-4 text-sm text-red-400';
+        vbox.classList.remove('hidden');
+        vbox.innerHTML = escHtml(err.detail || 'Submission failed');
+        btn.disabled = false;
+        ind.classList.add('hidden');
+        return;
+      }
+
+      const sub = await res.json();
+      pollVerdict(sub.id, btn, ind, vbox);
+    };
+
+    async function pollVerdict(subId, btn, ind, vbox) {
+      const poll = async () => {
+        const r = await apiGet(`/submissions/${subId}`);
+        if (!r.ok) { clearInterval(timer); return; }
+        const s = await r.json();
+
+        if (s.status === 'DONE' || s.status === 'ERROR') {
+          clearInterval(timer);
+          btn.disabled = false;
+          ind.classList.add('hidden');
+          showVerdict(vbox, s);
+          await loadRecentSubs(currentProblem.id);
+        }
+      };
+      const timer = setInterval(poll, 1200);
+      poll();
+    }
+
+    function showVerdict(vbox, s) {
+      vbox.className = `rounded-xl border p-4 text-sm ${verdictBoxClass(s.verdict)}`;
+      vbox.classList.remove('hidden');
+
+      let inner = `<div class="flex flex-wrap items-center gap-3">
+        ${verdictBadge(s.verdict, s.status)}
+        <span class="text-zinc-300">${s.cases_passed}/${s.cases_total} test cases passed</span>
+        <span class="text-zinc-500 text-xs tabular-nums">${s.time_ms}ms</span>
+      </div>`;
+
+      if (s.compile_error) {
+        inner += `<pre class="mt-3 p-3 rounded-lg bg-zinc-950 border border-zinc-800 text-xs font-mono text-orange-400 whitespace-pre-wrap overflow-x-auto">${escHtml(s.compile_error)}</pre>`;
+      }
+      vbox.innerHTML = inner;
+    }
+
+    async function loadRecentSubs(problemId) {
+      const r = await apiGet(`/submissions/my?problem_id=${problemId}`);
+      if (!r.ok) return;
+      const subs = await r.json();
+      if (!subs.length) return;
+
+      const el = document.getElementById('recent-subs');
+      const list = document.getElementById('recent-subs-list');
+      el.classList.remove('hidden');
+      list.innerHTML = subs.slice(0, 5).map(s => `
+        <div class="flex flex-wrap items-center gap-3 px-3 py-2 text-xs">
+          ${verdictBadge(s.verdict, s.status)}
+          <a href="/submission.html?id=${s.id}" target="_blank" class="font-medium text-zinc-200 hover:text-amber-400 no-underline">#${s.id}</a>
+          <span class="font-mono text-zinc-500">${s.language}</span>
+          <span class="text-zinc-500 tabular-nums">${s.cases_passed}/${s.cases_total}</span>
+          <span class="text-zinc-600 ml-auto">${fmtDate(s.created_at)}</span>
+        </div>
+      `).join('');
+
+      if (subs.length >= 5) {
+        list.innerHTML += `<div class="px-3 py-2 text-center border-t border-zinc-800/80">
+          <a href="/submissions.html?problem=${problemId}" class="text-xs text-amber-400 hover:text-amber-300 no-underline">View all →</a>
+        </div>`;
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
