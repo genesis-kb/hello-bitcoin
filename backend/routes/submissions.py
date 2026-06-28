@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth import get_current_user
+from auth import get_current_user, get_user_for_sse
 from config import RATE_LIMIT_SUBMIT
 from limiter import limiter
 from db import AsyncSessionLocal, get_db
@@ -56,7 +56,71 @@ async def submit(
     return submission
 
 
+# ── Server-Sent Events — real-time status stream ──────────────────────────────
 
+@router.get("/{submission_id}/stream")
+async def stream_submission(
+    submission_id: int,
+    req: Request,
+    token: str | None = None,          # EventSource can't set headers; accept via QS
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_user_for_sse),  # reads Bearer OR ?token=
+):
+    """
+    SSE endpoint.  The client connects once and receives status events until
+    the submission reaches a terminal state (DONE or ERROR).  This replaces
+    repeated HTTP polling, cutting DB read load proportional to active users.
+
+    Usage (JavaScript):
+        const es = new EventSource(`/api/submissions/${id}/stream?token=...`);
+        es.onmessage = e => { const data = JSON.parse(e.data); ... };
+    """
+    submission = await db.get(Submission, submission_id)
+    if not submission:
+        raise HTTPException(404, "Submission not found.")
+    if submission.user_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(403, "Access denied.")
+
+    async def event_generator():
+        poll_interval = 0.75  # seconds between DB checks
+        max_wait = 300        # 5-minute timeout before giving up
+        elapsed = 0.0
+
+        while elapsed < max_wait:
+            async with AsyncSessionLocal() as poll_db:
+                fresh = await poll_db.get(Submission, submission_id)
+
+            if fresh is None:
+                break
+
+            data = {
+                "id": fresh.id,
+                "status": fresh.status,
+                "verdict": fresh.verdict,
+                "score": fresh.score,
+                "cases_total": fresh.cases_total,
+                "cases_passed": fresh.cases_passed,
+                "time_ms": fresh.time_ms,
+                "memory_peak_kb": fresh.memory_peak_kb,
+            }
+            yield f"data: {json.dumps(data)}\n\n"
+
+            if fresh.status in ("DONE", "ERROR"):
+                break
+
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+
+        yield "event: close\ndata: {}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # Disable Nginx buffering
+        },
+    )
 
 
 # ── List user's own submissions ───────────────────────────────────────────────

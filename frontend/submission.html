@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Submission Details — Programming Bitcoin OJ</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+  <script src="/theme.js"></script>
+  <link rel="stylesheet" href="/style.css">
+  <script type="importmap">{"imports":{
+    "codemirror":          "https://esm.sh/codemirror@6",
+    "@codemirror/state":   "https://esm.sh/@codemirror/state@6",
+    "@codemirror/view":    "https://esm.sh/@codemirror/view@6",
+    "@codemirror/commands": "https://esm.sh/@codemirror/commands@6",
+    "@codemirror/lang-python": "https://esm.sh/@codemirror/lang-python@6",
+    "@codemirror/lang-javascript": "https://esm.sh/@codemirror/lang-javascript@6",
+    "@codemirror/lang-rust": "https://esm.sh/@codemirror/lang-rust@6",
+    "@codemirror/theme-one-dark": "https://esm.sh/@codemirror/theme-one-dark@6"
+  }}</script>
+</head>
+
+<body class="min-h-full bg-zinc-950 text-zinc-100 font-sans antialiased">
+  <nav class="sticky top-0 z-50 border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-md">
+    <div class="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
+      <a href="/index.html"
+        class="flex items-center gap-2.5 font-bold text-zinc-100 no-underline hover:no-underline shrink-0">
+        <span
+          class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400 text-base border border-amber-500/30">₿</span>
+        <span><span class="text-amber-400">BTC</span>-OJ</span>
+      </a>
+      <div class="flex items-center gap-6" id="nav-links"></div>
+      <div id="nav-user" class="shrink-0"></div>
+    </div>
+  </nav>
+
+  <main class="max-w-6xl mx-auto px-4 py-8 pb-16">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+      <h1 id="page-title" class="text-2xl font-bold text-zinc-50">Submission Details</h1>
+      <a href="/submissions.html"
+        class="inline-flex items-center px-3 py-1.5 rounded-lg border border-zinc-700 text-sm text-zinc-400 hover:text-zinc-200 no-underline transition">
+        ← My Submissions
+      </a>
+    </div>
+
+    <div id="content-wrap" class="hidden space-y-5">
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900/40 p-5 sm:p-6">
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-5">
+          <div>
+            <div class="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1">Problem</div>
+            <a href="#" id="prob-link" class="font-semibold text-amber-400 hover:text-amber-300 no-underline"></a>
+          </div>
+          <div>
+            <div class="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1">Status</div>
+            <div id="verdict-wrap"></div>
+          </div>
+          <div>
+            <div class="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1">Language</div>
+            <div id="lang-val" class="font-mono text-sm text-zinc-200"></div>
+          </div>
+          <div>
+            <div class="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1">Test Cases</div>
+            <div id="cases-val" class="text-sm tabular-nums"></div>
+          </div>
+          <div>
+            <div class="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1">Time</div>
+            <div id="time-val" class="text-sm tabular-nums"></div>
+          </div>
+          <div>
+            <div class="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1">Submitted</div>
+            <div id="date-val" class="text-sm text-zinc-500"></div>
+          </div>
+        </div>
+
+        <div id="compile-err-wrap" class="hidden mt-5 pt-5 border-t border-zinc-800">
+          <div class="text-xs font-semibold uppercase tracking-wider text-red-400 mb-2">Error Output</div>
+          <pre id="compile-err-text"
+            class="m-0 p-3 rounded-lg bg-zinc-950 border border-zinc-800 text-xs font-mono text-orange-400 whitespace-pre-wrap"></pre>
+        </div>
+      </div>
+
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-zinc-800 bg-zinc-900/60">
+          <h3 class="text-sm font-semibold text-zinc-200 m-0">Source Code</h3>
+          <button type="button" id="copy-btn"
+            class="px-2.5 py-1 rounded-md border border-zinc-700 bg-zinc-950 text-xs text-zinc-300 hover:border-zinc-600 hover:text-zinc-100 transition cursor-pointer">
+            Copy Code
+          </button>
+        </div>
+        <div id="editor-wrap" class="editor-wrap min-h-[200px]"></div>
+      </div>
+    </div>
+
+    <div id="loading" class="flex justify-center py-20 text-zinc-500">
+      <span class="spinner"></span>
+    </div>
+  </main>
+
+  <script src="/app.js"></script>
+  <script type="module">
+    import { EditorView, keymap } from '@codemirror/view';
+    import { EditorState } from '@codemirror/state';
+    import { python } from '@codemirror/lang-python';
+    import { javascript } from '@codemirror/lang-javascript';
+    import { rust } from '@codemirror/lang-rust';
+    import { oneDark } from '@codemirror/theme-one-dark';
+
+    function langExtension(lang) {
+      if (lang === 'python3') return python();
+      if (lang === 'javascript') return javascript();
+      if (lang === 'rust') return rust();
+      return python();
+    }
+
+    function updateUI(sub) {
+      document.getElementById('verdict-wrap').innerHTML = verdictBadge(sub.verdict, sub.status);
+      document.getElementById('cases-val').textContent =
+        sub.status === 'DONE' ? `${sub.cases_passed}/${sub.cases_total}` : '—';
+      document.getElementById('time-val').textContent =
+        sub.time_ms ? `${sub.time_ms}ms` : '—';
+    }
+
+    async function init() {
+      await renderNav('submissions');
+      requireAuth();
+
+      const params = new URLSearchParams(location.search);
+      const subId = params.get('id');
+      if (!subId) {
+        window.location.href = '/submissions.html';
+        return;
+      }
+
+      document.getElementById('page-title').textContent = `Submission #${subId}`;
+
+      const res = await apiGet(`/submissions/${subId}`);
+      if (!res.ok) {
+        document.getElementById('loading').innerHTML =
+          `<p class="text-zinc-500">Submission not found or access denied.</p>`;
+        return;
+      }
+
+      const sub = await res.json();
+
+      document.getElementById('loading').classList.add('hidden');
+      document.getElementById('content-wrap').classList.remove('hidden');
+
+      document.getElementById('prob-link').textContent = sub.problem_id;
+      document.getElementById('prob-link').href = `/problem.html?id=${sub.problem_id}`;
+      document.getElementById('lang-val').textContent = sub.language;
+      document.getElementById('date-val').textContent = fmtDate(sub.created_at);
+      updateUI(sub);
+
+      if (sub.compile_error) {
+        document.getElementById('compile-err-wrap').classList.remove('hidden');
+        document.getElementById('compile-err-text').textContent = sub.compile_error;
+      }
+
+      new EditorView({
+        state: EditorState.create({
+          doc: sub.source || '',
+          extensions: [
+            oneDark,
+            langExtension(sub.language),
+            EditorView.lineWrapping,
+            EditorState.readOnly.of(true)
+          ],
+        }),
+        parent: document.getElementById('editor-wrap'),
+      });
+
+      document.getElementById('copy-btn').addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(sub.source || '');
+          const btn = document.getElementById('copy-btn');
+          btn.textContent = 'Copied!';
+          setTimeout(() => btn.textContent = 'Copy Code', 2000);
+        } catch (e) {
+          console.error('Failed to copy', e);
+        }
+      });
+
+      if (sub.status !== 'DONE' && sub.status !== 'ERROR') {
+        const token = localStorage.getItem('access_token');
+        const streamUrl = `/api/submissions/${subId}/stream`;
+        const es = new EventSource(streamUrl + (token ? `?token=${token}` : ''));
+
+        es.onmessage = (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            updateUI(data);
+            if (data.status === 'DONE' || data.status === 'ERROR') {
+              es.close();
+              if (data.verdict === 'CE') {
+                apiGet(`/submissions/${subId}`)
+                  .then(r => r.json())
+                  .then(full => {
+                    if (full.compile_error) {
+                      document.getElementById('compile-err-wrap').classList.remove('hidden');
+                      document.getElementById('compile-err-text').textContent = full.compile_error;
+                    }
+                  });
+              }
+            }
+          } catch { }
+        };
+
+        es.addEventListener('close', () => es.close());
+        es.onerror = () => es.close();
+      }
+    }
+
+    init();
+  </script>
+</body>
+
+</html>

@@ -105,4 +105,33 @@ async def get_current_user_optional(
         return None
 
 
+async def get_user_for_sse(
+    token: Optional[str] = None,  # ?token= query param — used by EventSource
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(
+        HTTPBearer(auto_error=False)
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """
+    Auth dependency for the SSE streaming endpoint.
 
+    The browser's native EventSource API cannot set custom HTTP headers,
+    so the access token is accepted either as:
+      - Authorization: Bearer <token>  (normal API clients, fetch/axios)
+      - ?token=<access_token>          (browser EventSource)
+
+    The Bearer header takes precedence when both are present.
+    """
+    raw_token = credentials.credentials if credentials else token
+    if not raw_token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    payload = decode_token(raw_token)
+    if payload.get("type") != "access":
+        raise HTTPException(status_code=401, detail="Invalid token type")
+
+    user_id = int(payload["sub"])
+    user = await db.get(User, user_id)
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail="User not found or inactive")
+    return user
