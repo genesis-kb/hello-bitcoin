@@ -1,6 +1,10 @@
 """JWT authentication + password hashing utilities.
 
-
+Token revocation is implemented via a per-JTI Redis key:
+  - On refresh-token creation  → store JTI in Redis with TTL = REFRESH_TOKEN_EXPIRE_DAYS
+  - On token refresh (rotate)  → delete old JTI, issue new one
+  - On logout                  → delete JTI immediately (token becomes invalid)
+  - On validation              → check JTI exists; reject if missing
 """
 
 import uuid
@@ -57,6 +61,11 @@ def create_access_token(user_id: int, role: str) -> str:
     )
 
 
+def create_refresh_token(user_id: int) -> str:
+    return _create_token(
+        {"sub": str(user_id), "type": "refresh"},
+        timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
+    )
 
 
 def decode_token(token: str) -> dict:
@@ -66,7 +75,32 @@ def decode_token(token: str) -> dict:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
 
 
+# ── JTI revocation helpers ────────────────────────────────────────────────────
 
+_REVOKE_PREFIX = "revoked_jti:"
+
+
+async def store_refresh_jti(redis, jti: str) -> None:
+    """Register a refresh token JTI as valid.  TTL mirrors token lifetime."""
+    if redis is None:
+        return
+    ttl_seconds = REFRESH_TOKEN_EXPIRE_DAYS * 86_400
+    await redis.set(f"{_REVOKE_PREFIX}{jti}", "1", ex=ttl_seconds)
+
+
+async def revoke_refresh_jti(redis, jti: str) -> None:
+    """Immediately invalidate a refresh token (logout or rotation)."""
+    if redis is None:
+        return
+    await redis.delete(f"{_REVOKE_PREFIX}{jti}")
+
+
+async def is_refresh_jti_valid(redis, jti: str) -> bool:
+    """Return True only if the JTI was registered and not yet revoked."""
+    if redis is None:
+        return True  # Skip check when Redis unavailable (dev/test mode)
+    result = await redis.get(f"{_REVOKE_PREFIX}{jti}")
+    return result is not None
 
 
 # ── FastAPI dependencies ──────────────────────────────────────────────────────

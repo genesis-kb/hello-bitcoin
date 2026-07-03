@@ -3,11 +3,9 @@
 Welcome to BTC-OJ! This platform is designed to help you practice and verify your solutions to the cryptography exercises presented in *Programming Bitcoin*.
 
 ## Features
-- **Core Backend**: FastAPI, SQLAlchemy models, JWT auth.
-- **Docker Sandbox Runner**: Secure, isolated code execution.
-- **Async Background Worker**: ARQ queue consumer for parallel code evaluation.
-- **Code Submission Interface**: In-browser code editor and submission history tracking.
-- **Live Updates**: Real-time evaluation status pushed to the frontend via Server-Sent Events (SSE).
+- **Docker Sandbox Runner**: Secure, isolated code execution via a background ARQ worker queue.
+- **Code Submission Interface**: In-browser code editor with live Server-Sent Event (SSE) updates on evaluation status.
+- **Enhanced Security**: JWT Authentication with Refresh Token rotation and Redis JTI revocation blacklisting.
 
 ## Local Development Setup
 
@@ -31,4 +29,4 @@ python scripts/seed.py
 
 ### 4. Access the Site
 * **Web UI:** [http://localhost:8001/index.html](http://localhost:8001/index.html).
-* **Usage:** Submit code and watch the verdict update in real-time. Click on a specific submission ID to view the detailed breakdown.
+* **Usage:** Log in, the frontend securely manages auth state via access and refresh tokens. You can log out to immediately revoke access tokens from the Redis blacklist.

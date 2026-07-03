@@ -34,10 +34,22 @@ async function apiFetch(path, opts = {}) {
 
   let res = await fetch(API + path, { ...opts, headers });
 
-  if (res.status === 401) {
-    Auth.clear();
-    redirectToLogin();
-    throw new Error('Session expired');
+  if (res.status === 401 && Auth.getRefresh()) {
+    const rr = await fetch(`${API}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: Auth.getRefresh() }),
+    });
+    if (rr.ok) {
+      const data = await rr.json();
+      Auth.set(data.access_token, data.refresh_token);
+      headers['Authorization'] = `Bearer ${data.access_token}`;
+      res = await fetch(API + path, { ...opts, headers });
+    } else {
+      Auth.clear();
+      redirectToLogin();
+      throw new Error('Session expired');
+    }
   }
 
   return res;
