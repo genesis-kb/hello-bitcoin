@@ -19,7 +19,7 @@ from arq.connections import RedisSettings
 from config import ALLOWED_ORIGINS, JUDGE_IMAGE, REDIS_URL, RATE_LIMIT_AUTH, RATE_LIMIT_SUBMIT
 from db import get_db, init_db
 from limiter import limiter
-from routes import auth, problems, submissions
+from routes import auth, problems, submissions, admin as admin_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -114,7 +114,7 @@ async def health(request: Request):
 app.include_router(auth.router, prefix="/api")
 app.include_router(problems.router, prefix="/api")
 app.include_router(submissions.router, prefix="/api")
-
+app.include_router(admin_router.router, prefix="/api")
 
 # ── Frontend (served as static files) ────────────────────────────────────────
 if FRONTEND_DIR.exists():

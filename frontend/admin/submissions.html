@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>All Submissions — Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+  <script src="/theme.js"></script>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="min-h-full bg-zinc-950 text-zinc-100 font-sans antialiased">
+  <nav class="sticky top-0 z-50 border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-md">
+    <div class="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
+      <a href="/index.html" class="flex items-center gap-2.5 font-bold text-zinc-100 no-underline hover:no-underline shrink-0">
+        <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400 text-base border border-amber-500/30">₿</span>
+        <span><span class="text-amber-400">BTC</span>-OJ</span>
+      </a>
+      <div class="flex items-center gap-6" id="nav-links"></div>
+      <div id="nav-user" class="shrink-0"></div>
+    </div>
+  </nav>
+
+  <div class="border-b border-amber-500/20 bg-amber-500/5">
+    <div class="max-w-6xl mx-auto px-4 py-2 flex items-center gap-3">
+      <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500 text-zinc-950">Admin</span>
+      <span class="text-sm text-zinc-400">All Submissions</span>
+    </div>
+  </div>
+
+  <main class="max-w-6xl mx-auto px-4 py-8 pb-16">
+    <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
+      <div>
+        <a href="/admin/index.html" class="text-sm text-zinc-500 hover:text-amber-400 no-underline">← Dashboard</a>
+        <h1 class="text-2xl font-bold text-zinc-50 mt-2">All Submissions</h1>
+      </div>
+      <div class="flex items-center gap-2">
+        <button type="button" id="prev-btn" onclick="changePage(-1)" disabled
+          class="px-3 py-1.5 rounded-lg border border-zinc-700 text-sm text-zinc-400 hover:text-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition">
+          Previous
+        </button>
+        <div class="flex items-center gap-2 text-sm text-zinc-500">
+          <span>Page</span>
+          <input type="number" id="page-input" value="1" min="1"
+            class="w-12 text-center rounded-lg border-zinc-700 bg-zinc-950 text-zinc-100 text-sm py-1 focus:border-amber-500 focus:ring-amber-500/20">
+        </div>
+        <button type="button" id="next-btn" onclick="changePage(1)" disabled
+          class="px-3 py-1.5 rounded-lg border border-zinc-700 text-sm text-zinc-400 hover:text-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition">
+          Next
+        </button>
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-zinc-800 text-left">
+              <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">#</th>
+              <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">User</th>
+              <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">Problem</th>
+              <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">Language</th>
+              <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">Verdict</th>
+              <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">Score</th>
+              <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">Time</th>
+              <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">Submitted</th>
+            </tr>
+          </thead>
+          <tbody id="subs-body" class="divide-y divide-zinc-800/80">
+            <tr><td colspan="8" class="px-4 py-10 text-center text-zinc-500"><span class="spinner"></span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <script src="/app.js"></script>
+  <script>
+    let currentPage = 1;
+    const limit = 50;
+
+    async function init() {
+      await renderNav('admin');
+      requireAdmin();
+
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('page')) {
+        const p = parseInt(params.get('page'), 10);
+        if (!isNaN(p) && p >= 1) currentPage = p;
+      }
+
+      document.getElementById('page-input').addEventListener('change', function() {
+        let p = parseInt(this.value, 10);
+        if (isNaN(p) || p < 1) p = 1;
+        currentPage = p;
+        this.value = p;
+        loadSubmissions();
+      });
+
+      await loadSubmissions();
+    }
+
+    async function loadSubmissions() {
+      const url = new URL(window.location);
+      url.searchParams.set('page', currentPage);
+      window.history.replaceState({}, '', url);
+
+      const offset = (currentPage - 1) * limit;
+      const tbody = document.getElementById('subs-body');
+      tbody.innerHTML = `<tr><td colspan="8" class="px-4 py-10 text-center text-zinc-500"><span class="spinner"></span></td></tr>`;
+
+      const res = await apiGet(`/admin/submissions?limit=${limit}&offset=${offset}`);
+      if (!res.ok) {
+        tbody.innerHTML = `<tr><td colspan="8" class="px-4 py-12 text-center text-red-400">Failed to load submissions</td></tr>`;
+        return;
+      }
+
+      const subs = await res.json();
+
+      document.getElementById('page-input').value = currentPage;
+      document.getElementById('prev-btn').disabled = (currentPage === 1);
+      document.getElementById('next-btn').disabled = (subs.length < limit);
+
+      if (!subs.length) {
+        tbody.innerHTML = `<tr><td colspan="8" class="px-4 py-12 text-center text-zinc-500">No submissions found.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = subs.map(s => `
+        <tr class="hover:bg-zinc-800/30 transition-colors">
+          <td class="px-4 py-3"><a href="/submission.html?id=${s.id}" target="_blank" class="font-mono text-xs font-medium text-zinc-200 hover:text-amber-400 no-underline">#${s.id}</a></td>
+          <td class="px-4 py-3 text-xs">${s.user_id}</td>
+          <td class="px-4 py-3"><a href="/problem.html?id=${s.problem_id}" class="text-xs text-amber-400/90 no-underline">${s.problem_id}</a></td>
+          <td class="px-4 py-3 font-mono text-xs text-zinc-500">${s.language}</td>
+          <td class="px-4 py-3">${verdictBadge(s.verdict, s.status)}</td>
+          <td class="px-4 py-3 text-xs tabular-nums">${s.status === 'DONE' ? `${s.cases_passed}/${s.cases_total}` : '—'}</td>
+          <td class="px-4 py-3 text-xs text-zinc-500">${s.time_ms ? s.time_ms+'ms' : '—'}</td>
+          <td class="px-4 py-3 text-xs text-zinc-500">${fmtDate(s.created_at)}</td>
+        </tr>
+      `).join('');
+    }
+
+    window.changePage = async function(delta) {
+      currentPage += delta;
+      if (currentPage < 1) currentPage = 1;
+      await loadSubmissions();
+    };
+
+    init();
+  </script>
+</body>
+</html>

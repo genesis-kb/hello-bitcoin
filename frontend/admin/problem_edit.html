@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Problem Editor — Admin — Programming Bitcoin OJ</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+  <script src="/theme.js"></script>
+  <link rel="stylesheet" href="/style.css">
+  <script type="importmap">{"imports":{
+    "codemirror":          "https://esm.sh/codemirror@6",
+    "@codemirror/state":   "https://esm.sh/@codemirror/state@6",
+    "@codemirror/view":    "https://esm.sh/@codemirror/view@6",
+    "@codemirror/commands": "https://esm.sh/@codemirror/commands@6",
+    "@codemirror/lang-python": "https://esm.sh/@codemirror/lang-python@6",
+    "@codemirror/lang-markdown": "https://esm.sh/@codemirror/lang-markdown@6",
+    "@codemirror/theme-one-dark": "https://esm.sh/@codemirror/theme-one-dark@6"
+  }}</script>
+  <style>
+    /* Scoped editor sizing — avoid height:100% leaking over the page */
+    .cm-host .cm-editor { min-height: 200px; max-height: 360px; font-size: 13px; }
+    .cm-host .cm-scroller { overflow: auto; }
+  </style>
+</head>
+<body class="min-h-full bg-zinc-950 text-zinc-100 font-sans antialiased">
+  <nav class="sticky top-0 z-50 border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-md">
+    <div class="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
+      <a href="/index.html" class="flex items-center gap-2.5 font-bold text-zinc-100 no-underline hover:no-underline shrink-0">
+        <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400 text-base border border-amber-500/30">₿</span>
+        <span><span class="text-amber-400">BTC</span>-OJ</span>
+      </a>
+      <div class="flex items-center gap-6" id="nav-links"></div>
+      <div id="nav-user" class="shrink-0"></div>
+    </div>
+  </nav>
+
+  <div class="border-b border-amber-500/20 bg-amber-500/5">
+    <div class="max-w-6xl mx-auto px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-2 text-sm flex-wrap">
+        <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500 text-zinc-950">Admin</span>
+        <a href="/admin/index.html" class="text-zinc-500 hover:text-amber-400 no-underline">← Dashboard</a>
+        <span class="text-zinc-700">/</span>
+        <span id="page-breadcrumb" class="text-zinc-200">New Problem</span>
+      </div>
+      <div class="flex gap-2">
+        <button type="button" id="preview-btn"
+          class="px-3 py-1.5 rounded-lg border border-zinc-700 text-sm text-zinc-400 hover:text-zinc-200 cursor-pointer transition">
+          Preview
+        </button>
+        <button type="button" id="save-btn"
+          class="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 text-sm font-semibold cursor-pointer transition shadow-lg shadow-amber-500/20 disabled:opacity-50">
+          Save
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <main class="max-w-6xl mx-auto px-4 py-6 pb-16 relative z-0">
+    <div id="save-msg" class="min-h-[1.5rem] text-sm mb-4"></div>
+
+    <div class="flex border-b border-zinc-800 mb-6" role="tablist" id="tab-bar">
+      <button type="button" data-tab="general" class="tab-btn px-4 py-2 text-sm font-medium text-amber-400 border-b-2 border-amber-500 -mb-px">General</button>
+      <button type="button" data-tab="code" class="tab-btn px-4 py-2 text-sm font-medium text-zinc-500 border-b-2 border-transparent -mb-px hover:text-zinc-300">Code Editors</button>
+      <button type="button" data-tab="testcases" class="tab-btn px-4 py-2 text-sm font-medium text-zinc-500 border-b-2 border-transparent -mb-px hover:text-zinc-300">Test Cases</button>
+    </div>
+
+    <!-- General -->
+    <section id="panel-general" class="tab-panel space-y-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div>
+          <label for="f-id" class="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">Problem ID <span class="text-red-400">*</span></label>
+          <input type="text" id="f-id" placeholder="ch01_field_add" pattern="[a-z0-9_]+"
+            class="input-field w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 font-mono placeholder-zinc-600 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 outline-none">
+        </div>
+        <div>
+          <label for="f-chapter" class="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">Chapter</label>
+          <input type="number" id="f-chapter" value="1" min="1" max="12"
+            class="input-field w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 outline-none">
+        </div>
+        <div>
+          <label for="f-time" class="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">Time Limit (s)</label>
+          <input type="number" id="f-time" value="5" step="0.5" min="1" max="30"
+            class="input-field w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 outline-none">
+        </div>
+        <div>
+          <label for="f-memory" class="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">Memory (MB)</label>
+          <input type="number" id="f-memory" value="256" min="64" max="1024"
+            class="input-field w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 outline-none">
+        </div>
+      </div>
+      <div>
+        <label for="f-title" class="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">Title <span class="text-red-400">*</span></label>
+        <input type="text" id="f-title" placeholder="Finite Field: Addition"
+          class="input-field w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 outline-none">
+      </div>
+      <div>
+        <label class="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">Description (Markdown)</label>
+        <div class="cm-host rounded-xl border border-zinc-700 overflow-hidden bg-zinc-900" id="desc-wrap"></div>
+      </div>
+      <label class="flex items-center gap-2 cursor-pointer text-sm text-zinc-300 select-none">
+        <input type="checkbox" id="f-published"
+          class="h-4 w-4 rounded border-zinc-600 bg-zinc-900 text-amber-500 focus:ring-amber-500/30">
+        Published (visible to all users)
+      </label>
+    </section>
+
+    <!-- Code editors (lazy-mounted) -->
+    <section id="panel-code" class="tab-panel hidden space-y-6">
+      <div>
+        <h3 class="text-xs font-semibold uppercase tracking-wider text-zinc-500 pb-2 mb-3 border-b border-zinc-800">
+          Starter Code <span class="normal-case font-normal text-zinc-600 ml-1">— JSON per language</span>
+        </h3>
+        <div class="cm-host rounded-xl border border-zinc-700 overflow-hidden bg-zinc-900" id="starter-wrap"></div>
+      </div>
+      <div>
+        <h3 class="text-xs font-semibold uppercase tracking-wider text-zinc-500 pb-2 mb-3 border-b border-zinc-800">
+          Wrapper / Harness <span class="normal-case font-normal text-zinc-600 ml-1">— JSON per language</span>
+        </h3>
+        <div class="cm-host rounded-xl border border-zinc-700 overflow-hidden bg-zinc-900" id="wrapper-wrap"></div>
+      </div>
+      <div>
+        <h3 class="text-xs font-semibold uppercase tracking-wider text-zinc-500 pb-2 mb-3 border-b border-zinc-800">
+          Checker Program <span class="normal-case font-normal text-zinc-600 ml-1">— optional <code class="font-mono text-amber-300/90">check(...)</code></span>
+        </h3>
+        <div class="cm-host rounded-xl border border-zinc-700 overflow-hidden bg-zinc-900" id="checker-wrap"></div>
+      </div>
+    </section>
+
+    <!-- Test cases -->
+    <section id="panel-testcases" class="tab-panel hidden">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+        <p class="text-sm text-zinc-500">Sample cases are shown to users. Hidden cases run during judging.</p>
+        <button type="button" id="add-tc-btn"
+          class="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 text-sm font-semibold cursor-pointer shrink-0">
+          + Add Test Case
+        </button>
+      </div>
+      <div class="space-y-4" id="tc-list">
+        <div class="text-center py-12 text-zinc-500 text-sm">Save the problem first, then add test cases.</div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+  <script type="module">
+    import { EditorView, keymap } from '@codemirror/view';
+    import { EditorState } from '@codemirror/state';
+    import { defaultKeymap, indentWithTab } from '@codemirror/commands';
+    import { python } from '@codemirror/lang-python';
+    import { markdown } from '@codemirror/lang-markdown';
+    import { oneDark } from '@codemirror/theme-one-dark';
+
+    const DEFAULT_CHECKER_HINT = `# Leave this empty to use the default exact-match checker.
+# Or implement a custom checker:
+#
+# def check(test_input: str, user_output: str, expected_output: str) -> dict:
+#     return {"verdict": "AC", "score": 1.0, "message": "Correct"}
+`;
+
+    const TAB_ACTIVE = 'tab-btn px-4 py-2 text-sm font-medium text-amber-400 border-b-2 border-amber-500 -mb-px';
+    const TAB_INACTIVE = 'tab-btn px-4 py-2 text-sm font-medium text-zinc-500 border-b-2 border-transparent -mb-px hover:text-zinc-300';
+
+    const editors = {};
+    const editorPending = {};
+    let codeEditorsReady = false;
+    let problemId = null;
+    let testCases = [];
+    let isNew = true;
+
+    function makeEditor(parentId, lang, initialContent = '') {
+      if (editors[parentId]) return editors[parentId];
+      const parent = document.getElementById(parentId);
+      if (!parent) return null;
+      const ext = lang === 'markdown' ? markdown() : python();
+      const view = new EditorView({
+        state: EditorState.create({
+          doc: initialContent,
+          extensions: [
+            oneDark,
+            ext,
+            keymap.of([...defaultKeymap, indentWithTab]),
+            EditorView.lineWrapping,
+          ],
+        }),
+        parent,
+      });
+      editors[parentId] = view;
+      return view;
+    }
+
+    function editorValue(id) {
+      return editors[id]?.state.doc.toString() ?? editorPending[id] ?? '';
+    }
+
+    function setEditorValue(id, val) {
+      editorPending[id] = val;
+      if (editors[id]) {
+        editors[id].dispatch({
+          changes: { from: 0, to: editors[id].state.doc.length, insert: val },
+        });
+      }
+    }
+
+    function refreshEditors() {
+      requestAnimationFrame(() => {
+        Object.values(editors).forEach(v => v.requestMeasure?.());
+      });
+    }
+
+    function ensureDescEditor() {
+      if (!editors['desc-wrap']) {
+        makeEditor('desc-wrap', 'markdown', editorPending['desc-wrap'] || '');
+      }
+      refreshEditors();
+    }
+
+    function ensureCodeEditors() {
+      if (codeEditorsReady) { refreshEditors(); return; }
+      makeEditor('starter-wrap', 'python', editorPending['starter-wrap'] || '{}');
+      makeEditor('wrapper-wrap', 'python', editorPending['wrapper-wrap'] || '{}');
+      makeEditor('checker-wrap', 'python', editorPending['checker-wrap'] || DEFAULT_CHECKER_HINT);
+      codeEditorsReady = true;
+      refreshEditors();
+    }
+
+    function switchTab(name) {
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.className = btn.dataset.tab === name ? TAB_ACTIVE : TAB_INACTIVE;
+      });
+      document.querySelectorAll('.tab-panel').forEach(panel => {
+        panel.classList.toggle('hidden', panel.id !== `panel-${name}`);
+      });
+      if (name === 'general') ensureDescEditor();
+      if (name === 'code') ensureCodeEditors();
+      refreshEditors();
+    }
+
+    document.getElementById('tab-bar').addEventListener('click', e => {
+      const btn = e.target.closest('.tab-btn');
+      if (!btn) return;
+      switchTab(btn.dataset.tab);
+    });
+
+    document.getElementById('save-btn').addEventListener('click', saveProblem);
+    document.getElementById('preview-btn').addEventListener('click', () => {
+      const pId = problemId || document.getElementById('f-id').value.trim() || 'preview';
+      window.open(`/problem.html?id=${pId}`, '_blank');
+    });
+    document.getElementById('add-tc-btn').addEventListener('click', addTestCase);
+
+    async function init() {
+      await renderNav('admin');
+      requireAdmin();
+
+      editorPending['desc-wrap'] = '';
+      editorPending['starter-wrap'] = '{}';
+      editorPending['wrapper-wrap'] = '{}';
+      editorPending['checker-wrap'] = DEFAULT_CHECKER_HINT;
+
+      ensureDescEditor();
+
+      const params = new URLSearchParams(location.search);
+      problemId = params.get('id');
+
+      if (problemId) {
+        isNew = false;
+        document.getElementById('page-breadcrumb').textContent = `Edit: ${problemId}`;
+        document.title = `Edit ${problemId} — Admin`;
+        await loadProblem(problemId);
+      }
+    }
+
+    async function loadProblem(id) {
+      const res = await apiGet(`/admin/problems/${id}`);
+      if (!res.ok) {
+        alert('Problem not found');
+        window.location.href = '/admin/index.html';
+        return;
+      }
+      const p = await res.json();
+
+      document.getElementById('f-id').value = p.id;
+      document.getElementById('f-id').disabled = true;
+      document.getElementById('f-title').value = p.title;
+      document.getElementById('f-chapter').value = p.chapter;
+      document.getElementById('f-time').value = p.time_limit;
+      document.getElementById('f-memory').value = p.memory_limit;
+      document.getElementById('f-published').checked = p.is_published;
+
+      setEditorValue('desc-wrap', p.description || '');
+      setEditorValue('starter-wrap', JSON.stringify(p.starter_code || {}, null, 2));
+      setEditorValue('wrapper-wrap', JSON.stringify(p.wrapper_code || {}, null, 2));
+      setEditorValue('checker-wrap', p.checker_code || DEFAULT_CHECKER_HINT);
+
+      testCases = p.test_cases || [];
+      renderTestCases();
+    }
+
+    async function saveProblem() {
+      const btn = document.getElementById('save-btn');
+      const msg = document.getElementById('save-msg');
+      btn.disabled = true;
+      msg.textContent = '';
+
+      const checker = editorValue('checker-wrap').trim();
+      const isDefaultHint = checker.startsWith('# Leave this empty');
+
+      let starterJson = {};
+      let wrapperJson = {};
+      try {
+        starterJson = JSON.parse(editorValue('starter-wrap') || '{}');
+      } catch {
+        msg.innerHTML = '<span class="text-red-400">Invalid JSON in Starter Code</span>';
+        btn.disabled = false;
+        return;
+      }
+      try {
+        wrapperJson = JSON.parse(editorValue('wrapper-wrap') || '{}');
+      } catch {
+        msg.innerHTML = '<span class="text-red-400">Invalid JSON in Wrapper Code</span>';
+        btn.disabled = false;
+        return;
+      }
+
+      const body = {
+        title: document.getElementById('f-title').value.trim(),
+        chapter: parseInt(document.getElementById('f-chapter').value, 10),
+        time_limit: parseFloat(document.getElementById('f-time').value),
+        memory_limit: parseInt(document.getElementById('f-memory').value, 10),
+        is_published: document.getElementById('f-published').checked,
+        description: editorValue('desc-wrap'),
+        starter_code: starterJson,
+        wrapper_code: wrapperJson,
+        checker_code: isDefaultHint ? '' : checker,
+      };
+
+      let res;
+      if (isNew) {
+        const id = document.getElementById('f-id').value.trim();
+        if (!id) {
+          msg.innerHTML = '<span class="text-red-400">Problem ID is required.</span>';
+          btn.disabled = false;
+          return;
+        }
+        res = await apiPost('/admin/problems', { id, ...body });
+      } else {
+        res = await apiPut(`/admin/problems/${problemId}`, body);
+      }
+
+      if (res.ok) {
+        const p = await res.json();
+        problemId = p.id;
+        isNew = false;
+        document.getElementById('f-id').disabled = true;
+        document.getElementById('page-breadcrumb').textContent = `Edit: ${problemId}`;
+        history.replaceState(null, '', `/admin/problem_edit.html?id=${problemId}`);
+        msg.innerHTML = '<span class="text-emerald-400">✓ Saved successfully.</span>';
+        testCases = p.test_cases || [];
+        renderTestCases();
+      } else {
+        const err = await res.json();
+        msg.innerHTML = `<span class="text-red-400">${escHtml(err.detail || 'Save failed.')}</span>`;
+      }
+      btn.disabled = false;
+      setTimeout(() => { msg.textContent = ''; }, 3000);
+    }
+
+    async function addTestCase() {
+      if (isNew || !problemId) {
+        alert('Save the problem first before adding test cases.');
+        return;
+      }
+      const res = await apiPost(`/admin/problems/${problemId}/testcases`, {
+        input: '',
+        expected_output: '',
+        is_sample: false,
+        points: 1,
+        order_index: testCases.length,
+      });
+      if (res.ok) {
+        testCases.push(await res.json());
+        renderTestCases();
+      }
+    }
+
+    async function saveTC(tcId) {
+      const tc = testCases.find(t => t.id === tcId);
+      if (!tc) return;
+      const res = await apiPut(`/admin/testcases/${tcId}`, {
+        input: document.getElementById(`tc-input-${tcId}`).value,
+        expected_output: document.getElementById(`tc-expected-${tcId}`).value,
+        is_sample: document.getElementById(`tc-sample-${tcId}`).checked,
+        points: tc.points,
+        order_index: tc.order_index,
+      });
+      if (res.ok) {
+        const row = document.getElementById(`tc-status-${tcId}`);
+        if (row) {
+          row.textContent = '✓ Saved';
+          row.className = 'text-xs text-emerald-400';
+          setTimeout(() => { row.textContent = ''; }, 2000);
+        }
+      }
+    }
+
+    async function deleteTC(tcId) {
+      if (!confirm('Delete this test case?')) return;
+      const res = await apiDelete(`/admin/testcases/${tcId}`);
+      if (res.ok || res.status === 204) {
+        testCases = testCases.filter(t => t.id !== tcId);
+        renderTestCases();
+      }
+    }
+
+    function renderTestCases() {
+      const list = document.getElementById('tc-list');
+      if (!testCases.length) {
+        list.innerHTML = '<div class="text-center py-12 text-zinc-500 text-sm">No test cases yet. Click "+ Add Test Case".</div>';
+        return;
+      }
+
+      list.innerHTML = testCases.map((tc, i) => `
+        <div class="rounded-xl border border-zinc-700 bg-zinc-900/60 p-4" data-tc-id="${tc.id}">
+          <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+            <span class="text-xs font-semibold uppercase tracking-wider text-zinc-500">Test Case ${i + 1}</span>
+            <div class="flex flex-wrap items-center gap-2">
+              <span id="tc-status-${tc.id}" class="text-xs"></span>
+              <label class="flex items-center gap-1.5 text-xs text-zinc-400 cursor-pointer select-none">
+                <input type="checkbox" id="tc-sample-${tc.id}" ${tc.is_sample ? 'checked' : ''}
+                  class="h-4 w-4 rounded border-zinc-600 bg-zinc-900 text-amber-500">
+                Sample
+              </label>
+              <button type="button" data-action="save-tc" data-id="${tc.id}"
+                class="px-2 py-1 rounded border border-amber-500/40 bg-amber-500/15 text-amber-400 text-xs hover:bg-amber-500/25 cursor-pointer">Save</button>
+              <button type="button" data-action="delete-tc" data-id="${tc.id}"
+                class="px-2 py-1 rounded border border-red-500/40 bg-red-500/15 text-red-400 text-xs hover:bg-red-500/25 cursor-pointer">Delete</button>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label class="text-[11px] font-medium uppercase tracking-wider text-zinc-500 block mb-1">Input</label>
+              <textarea id="tc-input-${tc.id}" rows="4"
+                class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-xs text-zinc-100 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 outline-none">${escHtml(tc.input)}</textarea>
+            </div>
+            <div>
+              <label class="text-[11px] font-medium uppercase tracking-wider text-zinc-500 block mb-1">Expected Output</label>
+              <textarea id="tc-expected-${tc.id}" rows="4"
+                class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-xs text-zinc-100 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 outline-none">${escHtml(tc.expected_output)}</textarea>
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    document.getElementById('tc-list').addEventListener('click', e => {
+      const btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      const id = parseInt(btn.dataset.id, 10);
+      if (btn.dataset.action === 'save-tc') saveTC(id);
+      if (btn.dataset.action === 'delete-tc') deleteTC(id);
+    });
+
+    init();
+  </script>
+</body>
+</html>

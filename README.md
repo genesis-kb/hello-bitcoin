@@ -4,8 +4,9 @@ Welcome to BTC-OJ! This platform is designed to help you practice and verify you
 
 ## Features
 - **Docker Sandbox Runner**: Secure, isolated code execution via a background ARQ worker queue.
-- **Code Submission Interface**: In-browser code editor with live Server-Sent Event (SSE) updates on evaluation status.
-- **Enhanced Security**: JWT Authentication with Refresh Token rotation and Redis JTI revocation blacklisting.
+- **Live Code Submission**: In-browser code editor with real-time SSE evaluation updates.
+- **Enhanced Security**: Secure JWT authentication featuring token rotation and redis-based revocation.
+- **Admin Problem Dashboard**: Polygon-style problem creator to write problem descriptions, set starter code, and manage hidden test cases.
 
 ## Local Development Setup
 
@@ -29,4 +30,4 @@ python scripts/seed.py
 
 ### 4. Access the Site
 * **Web UI:** [http://localhost:8001/index.html](http://localhost:8001/index.html).
-* **Usage:** Log in, the frontend securely manages auth state via access and refresh tokens. You can log out to immediately revoke access tokens from the Redis blacklist.
+* **Admin Access:** Log in as `admin@example.com` / `admin1234`. Click the "Admin" link to access the dashboard. Create a new problem and publish it dynamically.
