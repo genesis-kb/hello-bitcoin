@@ -17,6 +17,7 @@ from schemas import (
     TestCaseCreateRequest,
     TestCaseOut,
     UserOut,
+    UserRoleUpdate,
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -214,6 +215,35 @@ async def delete_test_case(
         raise HTTPException(404, "Test case not found.")
     await db.delete(tc)
     await db.commit()
+
+
+# ── Users ─────────────────────────────────────────────────────────────────────
+
+@router.get("/users", response_model=list[UserOut])
+async def list_users(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    result = await db.execute(select(User).order_by(User.created_at.desc()))
+    return result.scalars().all()
+
+
+@router.put("/users/{user_id}/role", response_model=UserOut)
+async def update_user_role(
+    user_id: int,
+    body: UserRoleUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(require_admin),
+):
+    if user_id == current_admin.id:
+        raise HTTPException(400, "Cannot change your own role.")
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(404, "User not found.")
+    user.role = body.role
+    await db.commit()
+    await db.refresh(user)
+    return user
 
 
 # ── All Submissions ───────────────────────────────────────────────────────────
