@@ -1,0 +1,107 @@
+version: "3.9"
+
+# ── Shared environment ────────────────────────────────────────────────────────
+x-common-env: &common-env
+  DATABASE_URL: postgresql+asyncpg://oj:oj@db:5432/oj
+  REDIS_URL: redis://redis:6379/0
+  SECRET_KEY: ${SECRET_KEY:-change_me_generate_with_openssl_rand_hex_32}
+  ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8001}
+  APP_ENV: ${APP_ENV:-development}
+  JUDGE_IMAGE: bitcoin-oj-runner
+  ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+  GLOBAL_MAX_MEMORY_MB: ${GLOBAL_MAX_MEMORY_MB:-2048}
+  SANDBOX_MEMORY_MB: ${SANDBOX_MEMORY_MB:-256}
+
+services:
+
+  # ── PostgreSQL ─────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: oj
+      POSTGRES_USER: oj
+      POSTGRES_PASSWORD: oj
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oj"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save "" --appendonly no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── Build the judge sandbox image (shared by api + worker) ────────────────
+  judge-builder:
+    build:
+      context: ./docker
+      dockerfile: Dockerfile.runner
+    image: bitcoin-oj-runner
+    # This service only builds the image; it never runs.
+    entrypoint: ["true"]
+
+  # ── FastAPI web server ─────────────────────────────────────────────────────
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: bitcoin-oj-api
+    ports:
+      - "${API_PORT:-8001}:8001"
+    environment:
+      <<: *common-env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      judge-builder:
+        condition: service_completed_successfully
+    volumes:
+      - ./frontend:/frontend
+    command: >
+      sh -c "
+        python -m alembic upgrade head &&
+        uvicorn main:app --host 0.0.0.0 --port 8001
+      "
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── ARQ judge worker ───────────────────────────────────────────────────────
+  worker:
+    user: root
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: bitcoin-oj-api
+    environment:
+      <<: *common-env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      judge-builder:
+        condition: service_completed_successfully
+    # Worker needs access to the Docker daemon to manage judge containers.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: python -m arq worker.WorkerSettings
+    # Run multiple worker replicas to scale judging horizontally:
+    #   docker compose up --scale worker=3
+    deploy:
+      replicas: 1
+
+volumes:
+  postgres_data:
