@@ -9,8 +9,10 @@ x-common-env: &common-env
   APP_ENV: ${APP_ENV:-development}
   JUDGE_IMAGE: bitcoin-oj-runner
   ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
-  GLOBAL_MAX_MEMORY_MB: ${GLOBAL_MAX_MEMORY_MB:-2048}
+  GLOBAL_MAX_MEMORY_MB: ${GLOBAL_MAX_MEMORY_MB:-7680}
   SANDBOX_MEMORY_MB: ${SANDBOX_MEMORY_MB:-256}
+  RATE_LIMIT_AUTH: "100000/minute"
+  RATE_LIMIT_SUBMIT: "100000/minute"
 
 services:
 
@@ -98,10 +100,10 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     command: python -m arq worker.WorkerSettings
-    # Run multiple worker replicas to scale judging horizontally:
-    #   docker compose up --scale worker=3
+    # Run multiple worker replicas to scale judging horizontally.
+    # To override: docker compose up --scale worker=N
     deploy:
-      replicas: 1
+      replicas: 3
 
 volumes:
   postgres_data:

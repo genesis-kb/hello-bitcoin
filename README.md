@@ -122,3 +122,32 @@ docker compose exec api python scripts/seed.py
 ### 4. Access the Site
 * **Web UI:** Open your browser to [http://localhost:8001](http://localhost:8001).
 * **Admin Login:** Log in with `admin@example.com` / `admin1234`.
+
+## Stress Test Results
+
+> **Environment:** MacBook · 3× ARQ worker replicas · Docker Compose
+
+### Overview
+
+| Metric | Value |
+|---|---|
+| Total Submissions | 2,500 |
+| HTTP Phase Time | 9.46 s |
+| HTTP Throughput | **264.3 req/s** |
+| Average Request Latency | 375 ms |
+| Successful HTTP Requests | 2,500 / 2,500 (100%) |
+| Total Judging Time | 260.34 s |
+| Judging Throughput | **9.60 verdicts/sec** |
+
+### Per-Language Breakdown
+
+| Language | Submissions | Success | Failed | Avg Latency |
+|---|---|---|---|---|
+| Python 3 | 836 | 836 | 0 | 0.371 s |
+| JavaScript | 832 | 832 | 0 | 0.371 s |
+| Rust | 832 | 832 | 0 | 0.383 s |
+
+> **Run the stress test :**
+> ```bash
+> pytest backend/tests/stress_test.py -v -s
+> ```

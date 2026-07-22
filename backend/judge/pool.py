@@ -9,9 +9,12 @@ from typing import Optional
 import docker
 import docker.errors
 
+import os
 from config import JUDGE_IMAGE, JUDGE_POOL_SIZE, SANDBOX_MEMORY_MB
 
 logger = logging.getLogger(__name__)
+
+LABEL_VALUE = os.environ.get("JUDGE_POOL_LABEL", "runner")
 
 
 class ContainerPool:
@@ -31,7 +34,7 @@ class ContainerPool:
         self.concurrency_per_container = 1
         self._client: Optional[docker.DockerClient] = None
         self._queue: Optional[asyncio.Queue] = None
-        self._containers: list = []
+        self._containers: list = [None] * self.size
         self._locks: list[asyncio.Lock] = []
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -49,7 +52,7 @@ class ContainerPool:
         for i in range(self.size):
             try:
                 container = await loop.run_in_executor(None, self._create_container, i)
-                self._containers.append(container)
+                self._containers[i] = container
                 for _ in range(self.concurrency_per_container):
                     await self._queue.put(i)
                 logger.info("ContainerPool: container %d/%d ready (%s)", i + 1, self.size, container.short_id)
@@ -105,7 +108,7 @@ class ContainerPool:
 
     def _cleanup_old_containers(self) -> None:
         try:
-            for c in self._client.containers.list(filters={"label": "bitcoin-oj=runner"}):
+            for c in self._client.containers.list(filters={"label": f"bitcoin-oj={LABEL_VALUE}"}):
                 try:
                     c.stop(timeout=2)
                     c.remove(force=True)
@@ -134,7 +137,7 @@ class ContainerPool:
             nano_cpus=500_000_000,      # 0.5 vCPU
             read_only=True,
             tmpfs={"/tmp": "size=64m,exec,mode=1777"},
-            labels={"bitcoin-oj": "runner"},
+            labels={"bitcoin-oj": LABEL_VALUE},
             name=name,
         )
 

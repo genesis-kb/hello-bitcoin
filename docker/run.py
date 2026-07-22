@@ -127,9 +127,19 @@ def main():
             cmd = [bin_path]
 
         elif language == "python3":
+            # Syntax check first
+            chk = subprocess.run(["python3", "-m", "py_compile", src_path], capture_output=True, text=True)
+            if chk.returncode != 0:
+                _out("CE", stderr=chk.stderr[:4096])
+                return
             cmd = ["python3", "-u", src_path]
 
         elif language == "javascript":
+            # Syntax check first
+            chk = subprocess.run(["node", "--check", src_path], capture_output=True, text=True)
+            if chk.returncode != 0:
+                _out("CE", stderr=chk.stderr[:4096])
+                return
             cmd = ["node", f"--max-old-space-size={memory_limit_mb}", src_path]
 
         else:
