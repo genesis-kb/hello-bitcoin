@@ -1,21 +1,27 @@
 <!DOCTYPE html>
 <html lang="en" class="h-full">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Users — Admin — Programming Bitcoin OJ</title>
+  <title>Users — Admin — Hello Bitcoin</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
   <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
   <script src="/theme.js"></script>
   <link rel="stylesheet" href="/style.css">
 </head>
+
 <body class="min-h-full bg-zinc-950 text-zinc-100 font-sans antialiased">
   <nav class="sticky top-0 z-50 border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-md">
     <div class="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
-      <a href="/index.html" class="flex items-center gap-2.5 font-bold text-zinc-100 no-underline hover:no-underline shrink-0">
-        <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400 text-base border border-amber-500/30">₿</span>
-        <span><span class="text-amber-400">BTC</span>-OJ</span>
+      <a href="/index.html"
+        class="flex items-center gap-2.5 font-bold text-zinc-100 no-underline hover:no-underline shrink-0">
+        <span
+          class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400 text-base border border-amber-500/30">₿</span>
+        <span><span class="text-amber-400">Hello</span> Bitcoin</span>
       </a>
       <div class="flex items-center gap-6" id="nav-links"></div>
       <div id="nav-user" class="shrink-0"></div>
@@ -24,7 +30,8 @@
 
   <div class="border-b border-amber-500/20 bg-amber-500/5">
     <div class="max-w-6xl mx-auto px-4 py-2 flex items-center gap-2 text-sm">
-      <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500 text-zinc-950">Admin</span>
+      <span
+        class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500 text-zinc-950">Admin</span>
       <a href="/admin/index.html" class="text-zinc-500 hover:text-amber-400 no-underline">← Dashboard</a>
       <span class="text-zinc-700">/</span>
       <span class="text-zinc-300">Users</span>
@@ -52,14 +59,16 @@
             </tr>
           </thead>
           <tbody id="users-body" class="divide-y divide-zinc-800/80">
-            <tr><td colspan="6" class="px-4 py-12 text-center text-zinc-500"><span class="spinner"></span></td></tr>
+            <tr>
+              <td colspan="6" class="px-4 py-12 text-center text-zinc-500"><span class="spinner"></span></td>
+            </tr>
           </tbody>
         </table>
       </div>
     </div>
   </main>
 
-  <script src="/app.js"></script>
+  <script src="/app.js?v=2"></script>
   <script>
     let currentUserId = null;
 
@@ -113,7 +122,7 @@
       `).join('');
     }
 
-    window.toggleRole = async function(userId, currentRole) {
+    window.toggleRole = async function (userId, currentRole) {
       const newRole = currentRole === 'admin' ? 'user' : 'admin';
       const msg = document.getElementById('status-msg');
 
@@ -132,4 +141,5 @@
     init();
   </script>
 </body>
+
 </html>

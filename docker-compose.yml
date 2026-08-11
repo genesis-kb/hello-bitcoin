@@ -103,7 +103,7 @@ services:
     # Run multiple worker replicas to scale judging horizontally.
     # To override: docker compose up --scale worker=N
     deploy:
-      replicas: 3
+      replicas: 1
 
 volumes:
   postgres_data:

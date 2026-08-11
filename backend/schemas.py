@@ -55,10 +55,16 @@ class TestCaseOut(BaseModel):
 class ProblemListItem(BaseModel):
     id: str
     title: str
-    chapter: int
+    source_type: str
+    conference_id: Optional[int] = None
+    book_chapter_id: Optional[int] = None
+    order_index: int
     time_limit: float
     memory_limit: int
     is_published: bool
+    tests_count: int = 0
+    parent_name: Optional[str] = None
+    parent_slug: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -66,14 +72,64 @@ class ProblemListItem(BaseModel):
 class ProblemDetail(BaseModel):
     id: str
     title: str
-    chapter: int
+    source_type: str
+    order_index: int
     description: str
     starter_code: Dict[str, str]
     time_limit: float
     memory_limit: int
     sample_cases: list[TestCaseOut]
+    parent_name: Optional[str] = None
+    parent_slug: Optional[str] = None
 
     model_config = {"from_attributes": True}
+
+
+# ── Conferences ───────────────────────────────────────────────────────────────
+
+class ConferenceListItem(BaseModel):
+    id: int
+    name: str
+    slug: str
+    year: Optional[int]
+    is_published: bool
+
+    model_config = {"from_attributes": True}
+
+
+class ConferenceDetail(ConferenceListItem):
+    description: str
+    problems: list[ProblemListItem] = []
+
+
+# ── Books ─────────────────────────────────────────────────────────────────────
+
+class BookChapterItem(BaseModel):
+    id: int
+    number: int
+    title: str
+
+    model_config = {"from_attributes": True}
+
+
+class BookListItem(BaseModel):
+    id: int
+    title: str
+    slug: str
+    author: str
+    is_published: bool
+
+    model_config = {"from_attributes": True}
+
+
+class BookDetail(BookListItem):
+    description: str
+    chapters: list[BookChapterItem] = []
+
+
+class BookChapterDetail(BookChapterItem):
+    description: str
+    problems: list[ProblemListItem] = []
 
 
 # ── Submissions ───────────────────────────────────────────────────────────────
@@ -110,10 +166,56 @@ class SubmissionDetailOut(SubmissionOut):
 
 # ── Admin ─────────────────────────────────────────────────────────────────────
 
-class ProblemCreateRequest(BaseModel):
-    id: str = Field(..., min_length=3, max_length=100, pattern=r"^[a-z0-9_]+$")
+class ConferenceCreateRequest(BaseModel):
+    name: str = Field(..., max_length=200)
+    slug: str = Field(..., min_length=3, max_length=200, pattern=r"^[a-z0-9_-]+$")
+    description: str = ""
+    year: Optional[int] = None
+    is_published: bool = False
+
+
+class ConferenceUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    slug: Optional[str] = Field(None, min_length=3, max_length=200, pattern=r"^[a-z0-9_-]+$")
+    description: Optional[str] = None
+    year: Optional[int] = None
+    is_published: Optional[bool] = None
+
+
+class BookCreateRequest(BaseModel):
     title: str = Field(..., max_length=200)
-    chapter: int = 1
+    slug: str = Field(..., min_length=3, max_length=200, pattern=r"^[a-z0-9_-]+$")
+    author: str = Field("", max_length=200)
+    description: str = ""
+    is_published: bool = False
+
+
+class BookUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    slug: Optional[str] = Field(None, min_length=3, max_length=200, pattern=r"^[a-z0-9_-]+$")
+    author: Optional[str] = None
+    description: Optional[str] = None
+    is_published: Optional[bool] = None
+
+
+class BookChapterCreateRequest(BaseModel):
+    number: int
+    title: str = Field(..., max_length=200)
+    description: str = ""
+
+
+class BookChapterUpdateRequest(BaseModel):
+    number: Optional[int] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+
+
+class ProblemCreateRequest(BaseModel):
+    title: str = Field(..., max_length=200)
+    source_type: str = Field(..., pattern="^(book|conference)$")
+    conference_id: Optional[int] = None
+    book_chapter_id: Optional[int] = None
+    order_index: int = 0
     description: str = ""
     starter_code: Dict[str, str] = {}
     wrapper_code: Dict[str, str] = {}
@@ -125,7 +227,10 @@ class ProblemCreateRequest(BaseModel):
 
 class ProblemUpdateRequest(BaseModel):
     title: Optional[str] = None
-    chapter: Optional[int] = None
+    source_type: Optional[str] = Field(None, pattern="^(book|conference)$")
+    conference_id: Optional[int] = None
+    book_chapter_id: Optional[int] = None
+    order_index: Optional[int] = None
     description: Optional[str] = None
     starter_code: Optional[Dict[str, str]] = None
     wrapper_code: Optional[Dict[str, str]] = None
@@ -149,7 +254,10 @@ class TestCaseCreateRequest(BaseModel):
 class AdminProblemDetail(BaseModel):
     id: str
     title: str
-    chapter: int
+    source_type: str
+    conference_id: Optional[int]
+    book_chapter_id: Optional[int]
+    order_index: int
     description: str
     starter_code: Dict[str, str]
     wrapper_code: Dict[str, str]

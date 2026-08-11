@@ -1,6 +1,6 @@
-# Programming Bitcoin Online Judge (BTC-OJ)
+# Programming Bitcoin Online Judge (Hello Bitcoin)
 
-Welcome to BTC-OJ! This platform is designed to help you practice and verify your solutions to the cryptography exercises presented in *Programming Bitcoin* by Jimmy Song.
+Welcome to Hello Bitcoin! This platform is designed to help you practice and verify your solutions to the cryptography exercises presented in *Programming Bitcoin* by Jimmy Song.
 
 ## Overview
 - **Solve problems**: Write your solutions directly in the browser using the interactive CodeMirror editor.

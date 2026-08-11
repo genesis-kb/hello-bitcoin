@@ -1,5 +1,5 @@
 /**
- * app.js — shared utilities for Programming Bitcoin OJ
+ * app.js — shared utilities for Hello Bitcoin
  * Handles: auth token storage, authenticated fetch, nav rendering
  */
 
@@ -102,7 +102,9 @@ async function renderNav(activePage = '') {
   const user = await loadCurrentUser();
 
   const links = [
-    { href: '/index.html', label: 'Problems', key: 'problems' },
+    { href: '/index.html', label: 'Dashboard', key: 'dashboard' },
+    { href: '/conferences.html', label: 'Conferences', key: 'conferences' },
+    { href: '/books.html', label: 'Books', key: 'books' },
     { href: '/submissions.html', label: 'Submissions', key: 'submissions' },
   ];
   if (user?.role === 'admin') {

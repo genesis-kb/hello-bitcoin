@@ -19,7 +19,7 @@ from arq.connections import RedisSettings
 from config import ALLOWED_ORIGINS, JUDGE_IMAGE, REDIS_URL, RATE_LIMIT_AUTH, RATE_LIMIT_SUBMIT
 from db import get_db, init_db
 from limiter import limiter
-from routes import auth, problems, submissions, admin as admin_router
+from routes import auth, problems, submissions, books, conferences, admin as admin_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -59,7 +59,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Programming Bitcoin OJ",
+    title="Hello Bitcoin",
     description="Online judge for exercises from *Programming Bitcoin* by Jimmy Song.",
     version="1.1.0",
     lifespan=lifespan,
@@ -114,6 +114,8 @@ async def health(request: Request):
 app.include_router(auth.router, prefix="/api")
 app.include_router(problems.router, prefix="/api")
 app.include_router(submissions.router, prefix="/api")
+app.include_router(books.router, prefix="/api")
+app.include_router(conferences.router, prefix="/api")
 app.include_router(admin_router.router, prefix="/api")
 
 # ── Frontend (served as static files) ────────────────────────────────────────

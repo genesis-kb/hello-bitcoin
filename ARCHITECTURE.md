@@ -1,4 +1,4 @@
-# Programming Bitcoin OJ Architecture
+# Hello Bitcoin Architecture
 
 This document provides a comprehensive overview of the Online Judge (OJ) architecture, detailing the technology stack, data flow, scaling capabilities, and the rationale behind critical architectural decisions.
 

@@ -1,11 +1,14 @@
 <!DOCTYPE html>
 <html lang="en" class="h-full">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Problem Editor — Admin — Programming Bitcoin OJ</title>
+  <title>Problem Editor — Admin — Hello Bitcoin</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
   <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
   <script src="/theme.js"></script>
   <link rel="stylesheet" href="/style.css">
@@ -20,16 +23,26 @@
   }}</script>
   <style>
     /* Scoped editor sizing — avoid height:100% leaking over the page */
-    .cm-host .cm-editor { min-height: 200px; max-height: 360px; font-size: 13px; }
-    .cm-host .cm-scroller { overflow: auto; }
+    .cm-host .cm-editor {
+      min-height: 200px;
+      max-height: 360px;
+      font-size: 13px;
+    }
+
+    .cm-host .cm-scroller {
+      overflow: auto;
+    }
   </style>
 </head>
+
 <body class="min-h-full bg-zinc-950 text-zinc-100 font-sans antialiased">
   <nav class="sticky top-0 z-50 border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-md">
     <div class="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
-      <a href="/index.html" class="flex items-center gap-2.5 font-bold text-zinc-100 no-underline hover:no-underline shrink-0">
-        <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400 text-base border border-amber-500/30">₿</span>
-        <span><span class="text-amber-400">BTC</span>-OJ</span>
+      <a href="/index.html"
+        class="flex items-center gap-2.5 font-bold text-zinc-100 no-underline hover:no-underline shrink-0">
+        <span
+          class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400 text-base border border-amber-500/30">₿</span>
+        <span><span class="text-amber-400">Hello</span> Bitcoin</span>
       </a>
       <div class="flex items-center gap-6" id="nav-links"></div>
       <div id="nav-user" class="shrink-0"></div>
@@ -39,7 +52,8 @@
   <div class="border-b border-amber-500/20 bg-amber-500/5">
     <div class="max-w-6xl mx-auto px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
       <div class="flex items-center gap-2 text-sm flex-wrap">
-        <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500 text-zinc-950">Admin</span>
+        <span
+          class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500 text-zinc-950">Admin</span>
         <a href="/admin/index.html" class="text-zinc-500 hover:text-amber-400 no-underline">← Dashboard</a>
         <span class="text-zinc-700">/</span>
         <span id="page-breadcrumb" class="text-zinc-200">New Problem</span>
@@ -61,42 +75,89 @@
     <div id="save-msg" class="min-h-[1.5rem] text-sm mb-4"></div>
 
     <div class="flex border-b border-zinc-800 mb-6" role="tablist" id="tab-bar">
-      <button type="button" data-tab="general" class="tab-btn px-4 py-2 text-sm font-medium text-amber-400 border-b-2 border-amber-500 -mb-px">General</button>
-      <button type="button" data-tab="code" class="tab-btn px-4 py-2 text-sm font-medium text-zinc-500 border-b-2 border-transparent -mb-px hover:text-zinc-300">Code Editors</button>
-      <button type="button" data-tab="testcases" class="tab-btn px-4 py-2 text-sm font-medium text-zinc-500 border-b-2 border-transparent -mb-px hover:text-zinc-300">Test Cases</button>
+      <button type="button" data-tab="general"
+        class="tab-btn px-4 py-2 text-sm font-medium text-amber-400 border-b-2 border-amber-500 -mb-px">General</button>
+      <button type="button" data-tab="code"
+        class="tab-btn px-4 py-2 text-sm font-medium text-zinc-500 border-b-2 border-transparent -mb-px hover:text-zinc-300">Code
+        Editors</button>
+      <button type="button" data-tab="testcases"
+        class="tab-btn px-4 py-2 text-sm font-medium text-zinc-500 border-b-2 border-transparent -mb-px hover:text-zinc-300">Test
+        Cases</button>
     </div>
 
     <!-- General -->
     <section id="panel-general" class="tab-panel space-y-4">
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div>
-          <label for="f-id" class="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">Problem ID <span class="text-red-400">*</span></label>
-          <input type="text" id="f-id" placeholder="ch01_field_add" pattern="[a-z0-9_]+"
-            class="input-field w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 font-mono placeholder-zinc-600 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 outline-none">
+          <label class="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">Problem ID</label>
+          <input type="text" id="f-id" value="Auto-generated from title" disabled
+            class="input-field w-full rounded-lg border border-zinc-800 bg-zinc-900/50 px-3 py-2 text-sm text-zinc-400 font-mono outline-none cursor-not-allowed">
         </div>
         <div>
-          <label for="f-chapter" class="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">Chapter</label>
-          <input type="number" id="f-chapter" value="1" min="1" max="12"
-            class="input-field w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 outline-none">
-        </div>
-        <div>
-          <label for="f-time" class="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">Time Limit (s)</label>
+          <label for="f-time" class="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">Time
+            Limit (s)</label>
           <input type="number" id="f-time" value="5" step="0.5" min="1" max="30"
             class="input-field w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 outline-none">
         </div>
         <div>
-          <label for="f-memory" class="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">Memory (MB)</label>
+          <label for="f-memory" class="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">Memory
+            (MB)</label>
           <input type="number" id="f-memory" value="256" min="64" max="1024"
             class="input-field w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 outline-none">
         </div>
       </div>
+
+      <div class="p-4 rounded-xl border border-zinc-800 bg-zinc-900/40 space-y-4">
+        <h3 class="text-sm font-semibold text-zinc-200">Source</h3>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <label for="f-source-type" class="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">Type</label>
+            <select id="f-source-type" class="input-field w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 outline-none">
+              <option value="book">Book Chapter</option>
+              <option value="conference">Conference</option>
+            </select>
+          </div>
+          
+          <!-- Book specific -->
+          <div id="src-book-wrap" class="col-span-2 grid grid-cols-2 gap-4">
+            <div>
+              <label class="flex justify-between items-center text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">
+                <span>Book</span>
+                <button type="button" onclick="addNewBook()" class="text-amber-400 hover:text-amber-300 normal-case">+ New</button>
+              </label>
+              <select id="f-book" class="input-field w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 outline-none">
+              </select>
+            </div>
+            <div>
+              <label class="flex justify-between items-center text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">
+                <span>Chapter</span>
+                <button type="button" onclick="addNewChapter()" class="text-amber-400 hover:text-amber-300 normal-case">+ New</button>
+              </label>
+              <select id="f-chapter" class="input-field w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 outline-none">
+              </select>
+            </div>
+          </div>
+
+          <!-- Conference specific -->
+          <div id="src-conf-wrap" class="col-span-2 hidden">
+            <label class="flex justify-between items-center text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">
+              <span>Conference</span>
+              <button type="button" onclick="addNewConference()" class="text-amber-400 hover:text-amber-300 normal-case">+ New</button>
+            </label>
+            <select id="f-conference" class="input-field w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 outline-none">
+            </select>
+          </div>
+        </div>
+      </div>
       <div>
-        <label for="f-title" class="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">Title <span class="text-red-400">*</span></label>
+        <label for="f-title" class="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">Title
+          <span class="text-red-400">*</span></label>
         <input type="text" id="f-title" placeholder="Finite Field: Addition"
           class="input-field w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 outline-none">
       </div>
       <div>
-        <label class="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">Description (Markdown)</label>
+        <label class="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">Description
+          (Markdown)</label>
         <div class="cm-host rounded-xl border border-zinc-700 overflow-hidden bg-zinc-900" id="desc-wrap"></div>
       </div>
       <label class="flex items-center gap-2 cursor-pointer text-sm text-zinc-300 select-none">
@@ -122,7 +183,8 @@
       </div>
       <div>
         <h3 class="text-xs font-semibold uppercase tracking-wider text-zinc-500 pb-2 mb-3 border-b border-zinc-800">
-          Checker Program <span class="normal-case font-normal text-zinc-600 ml-1">— optional <code class="font-mono text-amber-300/90">check(...)</code></span>
+          Checker Program <span class="normal-case font-normal text-zinc-600 ml-1">— optional <code
+              class="font-mono text-amber-300/90">check(...)</code></span>
         </h3>
         <div class="cm-host rounded-xl border border-zinc-700 overflow-hidden bg-zinc-900" id="checker-wrap"></div>
       </div>
@@ -141,9 +203,25 @@
         <div class="text-center py-12 text-zinc-500 text-sm">Save the problem first, then add test cases.</div>
       </div>
     </section>
+    <!-- Modal -->
+    <dialog id="new-item-modal" class="backdrop:bg-zinc-950/80 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl p-0 w-full max-w-md open:animate-in open:fade-in open:zoom-in-95 m-auto">
+      <form method="dialog" id="modal-form" class="flex flex-col">
+        <div class="px-5 py-4 border-b border-zinc-800 flex justify-between items-center">
+          <h3 id="modal-title" class="text-lg font-semibold text-zinc-100">Add New</h3>
+          <button type="button" onclick="document.getElementById('new-item-modal').close()" class="text-zinc-500 hover:text-zinc-300">✕</button>
+        </div>
+        <div class="p-5 space-y-4" id="modal-body">
+          <!-- Injected dynamically -->
+        </div>
+        <div class="px-5 py-4 bg-zinc-950/50 border-t border-zinc-800 flex justify-end gap-3">
+          <button type="button" onclick="document.getElementById('new-item-modal').close()" class="px-4 py-2 rounded-lg text-sm font-medium text-zinc-400 hover:text-zinc-200 transition">Cancel</button>
+          <button type="submit" class="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 text-sm font-semibold shadow-lg shadow-amber-500/20 transition">Save</button>
+        </div>
+      </form>
+    </dialog>
   </main>
 
-  <script src="/app.js"></script>
+  <script src="/app.js?v=2"></script>
   <script type="module">
     import { EditorView, keymap } from '@codemirror/view';
     import { EditorState } from '@codemirror/state';
@@ -249,6 +327,93 @@
       window.open(`/problem.html?id=${pId}`, '_blank');
     });
     document.getElementById('add-tc-btn').addEventListener('click', addTestCase);
+    document.getElementById('f-source-type').addEventListener('change', e => {
+      document.getElementById('src-book-wrap').classList.toggle('hidden', e.target.value !== 'book');
+      document.getElementById('src-conf-wrap').classList.toggle('hidden', e.target.value !== 'conference');
+    });
+    document.getElementById('f-book').addEventListener('change', e => loadChapters(e.target.value));
+
+    window.addNewBook = async function() {
+      openModal("New Book", [
+        { id: "m-title", label: "Title", type: "text", required: true },
+        { id: "m-author", label: "Author", type: "text" }
+      ], async (data) => {
+        const slug = data['m-title'].toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+        const res = await apiPost('/admin/books', { title: data['m-title'], slug, author: data['m-author'], description: '', is_published: true });
+        if (res.ok) {
+          await loadSources();
+          document.getElementById('f-book').value = (await res.json()).id;
+          await loadChapters(document.getElementById('f-book').value);
+          return true;
+        } else {
+          alert(await res.text());
+          return false;
+        }
+      });
+    };
+
+    window.addNewChapter = async function() {
+      const bookId = document.getElementById('f-book').value;
+      if (!bookId) return alert("Select a book first");
+      
+      openModal("New Chapter", [
+        { id: "m-number", label: "Chapter Number", type: "number", required: true },
+        { id: "m-title", label: "Chapter Title", type: "text" }
+      ], async (data) => {
+        const res = await apiPost(`/admin/books/${bookId}/chapters`, { number: parseInt(data['m-number'], 10), title: data['m-title'], description: '' });
+        if (res.ok) {
+          await loadChapters(bookId);
+          document.getElementById('f-chapter').value = (await res.json()).id;
+          return true;
+        } else {
+          alert(await res.text());
+          return false;
+        }
+      });
+    };
+
+    window.addNewConference = async function() {
+      openModal("New Conference", [
+        { id: "m-name", label: "Name", type: "text", required: true },
+        { id: "m-year", label: "Year", type: "number", value: new Date().getFullYear(), required: true }
+      ], async (data) => {
+        const slug = data['m-name'].toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+        const res = await apiPost('/admin/conferences', { name: data['m-name'], slug, year: parseInt(data['m-year'], 10), description: '', is_published: true });
+        if (res.ok) {
+          await loadSources();
+          document.getElementById('f-conference').value = (await res.json()).id;
+          return true;
+        } else {
+          alert(await res.text());
+          return false;
+        }
+      });
+    };
+
+    function openModal(title, fields, onSubmit) {
+      const modal = document.getElementById('new-item-modal');
+      document.getElementById('modal-title').textContent = title;
+      
+      const body = document.getElementById('modal-body');
+      body.innerHTML = fields.map(f => `
+        <div>
+          <label for="${f.id}" class="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">${f.label}${f.required ? ' <span class="text-red-400">*</span>' : ''}</label>
+          <input type="${f.type}" id="${f.id}" name="${f.id}" ${f.required ? 'required' : ''} value="${f.value || ''}"
+            class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 outline-none">
+        </div>
+      `).join('');
+      
+      const form = document.getElementById('modal-form');
+      form.onsubmit = async (e) => {
+        e.preventDefault();
+        const data = {};
+        fields.forEach(f => data[f.id] = document.getElementById(f.id).value.trim());
+        const success = await onSubmit(data);
+        if (success) modal.close();
+      };
+      
+      modal.showModal();
+    }
 
     async function init() {
       await renderNav('admin');
@@ -260,6 +425,7 @@
       editorPending['checker-wrap'] = DEFAULT_CHECKER_HINT;
 
       ensureDescEditor();
+      await loadSources();
 
       const params = new URLSearchParams(location.search);
       problemId = params.get('id');
@@ -269,6 +435,34 @@
         document.getElementById('page-breadcrumb').textContent = `Edit: ${problemId}`;
         document.title = `Edit ${problemId} — Admin`;
         await loadProblem(problemId);
+      }
+    }
+
+    let allBooks = [];
+    async function loadSources() {
+      const [bRes, cRes] = await Promise.all([apiGet('/books'), apiGet('/conferences')]);
+      allBooks = bRes.ok ? await bRes.json() : [];
+      const confs = cRes.ok ? await cRes.json() : [];
+      
+      const bookSel = document.getElementById('f-book');
+      bookSel.innerHTML = allBooks.map(b => `<option value="${b.id}">${escHtml(b.title)}</option>`).join('');
+      
+      const confSel = document.getElementById('f-conference');
+      confSel.innerHTML = confs.map(c => `<option value="${c.id}">${escHtml(c.name)}</option>`).join('');
+      
+      if (allBooks.length > 0) await loadChapters(allBooks[0].id);
+    }
+
+    async function loadChapters(bookId) {
+      const chSel = document.getElementById('f-chapter');
+      if (!bookId) { chSel.innerHTML = ''; return; }
+      
+      const book = allBooks.find(b => b.id == bookId);
+      if (!book) return;
+      const res = await apiGet(`/books/${book.slug}`);
+      if (res.ok) {
+        const bd = await res.json();
+        chSel.innerHTML = bd.chapters.map(c => `<option value="${c.id}">Ch ${c.number}: ${escHtml(c.title)}</option>`).join('');
       }
     }
 
@@ -284,10 +478,29 @@
       document.getElementById('f-id').value = p.id;
       document.getElementById('f-id').disabled = true;
       document.getElementById('f-title').value = p.title;
-      document.getElementById('f-chapter').value = p.chapter;
       document.getElementById('f-time').value = p.time_limit;
       document.getElementById('f-memory').value = p.memory_limit;
       document.getElementById('f-published').checked = p.is_published;
+      
+      document.getElementById('f-source-type').value = p.source_type || 'book';
+      document.getElementById('f-source-type').dispatchEvent(new Event('change'));
+      
+      if (p.source_type === 'conference') {
+        document.getElementById('f-conference').value = p.conference_id;
+      } else if (p.book_chapter_id) {
+        for (const b of allBooks) {
+           const res = await apiGet(`/books/${b.slug}`);
+           if (res.ok) {
+              const bd = await res.json();
+              if (bd.chapters.some(c => c.id === p.book_chapter_id)) {
+                 document.getElementById('f-book').value = b.id;
+                 await loadChapters(b.id);
+                 document.getElementById('f-chapter').value = p.book_chapter_id;
+                 break;
+              }
+           }
+        }
+      }
 
       setEditorValue('desc-wrap', p.description || '');
       setEditorValue('starter-wrap', JSON.stringify(p.starter_code || {}, null, 2));
@@ -326,7 +539,9 @@
 
       const body = {
         title: document.getElementById('f-title').value.trim(),
-        chapter: parseInt(document.getElementById('f-chapter').value, 10),
+        source_type: document.getElementById('f-source-type').value,
+        conference_id: document.getElementById('f-source-type').value === 'conference' ? parseInt(document.getElementById('f-conference').value, 10) : null,
+        book_chapter_id: document.getElementById('f-source-type').value === 'book' ? parseInt(document.getElementById('f-chapter').value, 10) : null,
         time_limit: parseFloat(document.getElementById('f-time').value),
         memory_limit: parseInt(document.getElementById('f-memory').value, 10),
         is_published: document.getElementById('f-published').checked,
@@ -338,13 +553,7 @@
 
       let res;
       if (isNew) {
-        const id = document.getElementById('f-id').value.trim();
-        if (!id) {
-          msg.innerHTML = '<span class="text-red-400">Problem ID is required.</span>';
-          btn.disabled = false;
-          return;
-        }
-        res = await apiPost('/admin/problems', { id, ...body });
+        res = await apiPost('/admin/problems', body);
       } else {
         res = await apiPut(`/admin/problems/${problemId}`, body);
       }
@@ -465,4 +674,5 @@
     init();
   </script>
 </body>
+
 </html>

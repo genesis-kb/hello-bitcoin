@@ -1,21 +1,27 @@
 <!DOCTYPE html>
 <html lang="en" class="h-full">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>All Submissions — Admin</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
   <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
   <script src="/theme.js"></script>
   <link rel="stylesheet" href="/style.css">
 </head>
+
 <body class="min-h-full bg-zinc-950 text-zinc-100 font-sans antialiased">
   <nav class="sticky top-0 z-50 border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-md">
     <div class="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
-      <a href="/index.html" class="flex items-center gap-2.5 font-bold text-zinc-100 no-underline hover:no-underline shrink-0">
-        <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400 text-base border border-amber-500/30">₿</span>
-        <span><span class="text-amber-400">BTC</span>-OJ</span>
+      <a href="/index.html"
+        class="flex items-center gap-2.5 font-bold text-zinc-100 no-underline hover:no-underline shrink-0">
+        <span
+          class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400 text-base border border-amber-500/30">₿</span>
+        <span><span class="text-amber-400">Hello</span> Bitcoin</span>
       </a>
       <div class="flex items-center gap-6" id="nav-links"></div>
       <div id="nav-user" class="shrink-0"></div>
@@ -24,7 +30,8 @@
 
   <div class="border-b border-amber-500/20 bg-amber-500/5">
     <div class="max-w-6xl mx-auto px-4 py-2 flex items-center gap-3">
-      <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500 text-zinc-950">Admin</span>
+      <span
+        class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500 text-zinc-950">Admin</span>
       <span class="text-sm text-zinc-400">All Submissions</span>
     </div>
   </div>
@@ -68,14 +75,16 @@
             </tr>
           </thead>
           <tbody id="subs-body" class="divide-y divide-zinc-800/80">
-            <tr><td colspan="8" class="px-4 py-10 text-center text-zinc-500"><span class="spinner"></span></td></tr>
+            <tr>
+              <td colspan="8" class="px-4 py-10 text-center text-zinc-500"><span class="spinner"></span></td>
+            </tr>
           </tbody>
         </table>
       </div>
     </div>
   </main>
 
-  <script src="/app.js"></script>
+  <script src="/app.js?v=2"></script>
   <script>
     let currentPage = 1;
     const limit = 50;
@@ -90,7 +99,7 @@
         if (!isNaN(p) && p >= 1) currentPage = p;
       }
 
-      document.getElementById('page-input').addEventListener('change', function() {
+      document.getElementById('page-input').addEventListener('change', function () {
         let p = parseInt(this.value, 10);
         if (isNaN(p) || p < 1) p = 1;
         currentPage = p;
@@ -135,13 +144,13 @@
           <td class="px-4 py-3 font-mono text-xs text-zinc-500">${s.language}</td>
           <td class="px-4 py-3">${verdictBadge(s.verdict, s.status)}</td>
           <td class="px-4 py-3 text-xs tabular-nums">${s.status === 'DONE' ? `${s.cases_passed}/${s.cases_total}` : '—'}</td>
-          <td class="px-4 py-3 text-xs text-zinc-500">${s.time_ms ? s.time_ms+'ms' : '—'}</td>
+          <td class="px-4 py-3 text-xs text-zinc-500">${s.time_ms ? s.time_ms + 'ms' : '—'}</td>
           <td class="px-4 py-3 text-xs text-zinc-500">${fmtDate(s.created_at)}</td>
         </tr>
       `).join('');
     }
 
-    window.changePage = async function(delta) {
+    window.changePage = async function (delta) {
       currentPage += delta;
       if (currentPage < 1) currentPage = 1;
       await loadSubmissions();
@@ -150,4 +159,5 @@
     init();
   </script>
 </body>
+
 </html>

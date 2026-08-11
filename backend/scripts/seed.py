@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config import ADMIN_EMAIL
 from db import AsyncSessionLocal, init_db
-from models import Problem, TestCase, User
+from models import Problem, TestCase, User, Book, BookChapter, Conference
 from auth import hash_password
 from sqlalchemy import select
 
@@ -130,7 +130,53 @@ async def seed():
             admin = existing
             print(f"  Admin user already exists: {ADMIN_EMAIL}")
 
-        # Problems + test cases
+        # Books
+        book1 = (await db.execute(select(Book).where(Book.slug == "programming-bitcoin"))).scalar_one_or_none()
+        if not book1:
+            book1 = Book(title="Programming Bitcoin", slug="programming-bitcoin", author="Jimmy Song", is_published=True, description="Learn how to program Bitcoin from scratch.")
+            db.add(book1)
+            await db.flush()
+            pb_chapters = []
+            for i in range(1, 15):
+                ch = BookChapter(book_id=book1.id, number=i, title=f"Chapter {i}", description=f"Programming Bitcoin Chapter {i}")
+                pb_chapters.append(ch)
+            db.add_all(pb_chapters)
+            await db.flush()
+            print(f"✓ Created book '{book1.title}' with {len(pb_chapters)} chapters.")
+        else:
+            pb_chapters = (await db.execute(select(BookChapter).where(BookChapter.book_id == book1.id).order_by(BookChapter.number))).scalars().all()
+
+        book2 = (await db.execute(select(Book).where(Book.slug == "grokking-bitcoin"))).scalar_one_or_none()
+        if not book2:
+            book2 = Book(title="Grokking Bitcoin", slug="grokking-bitcoin", author="Kalle Rosenbaum", is_published=True, description="Deep dive into Bitcoin under the hood.")
+            db.add(book2)
+            await db.flush()
+            gb_chapters = []
+            for i in range(1, 4):
+                ch = BookChapter(book_id=book2.id, number=i, title=f"Chapter {i}", description=f"Grokking Bitcoin Chapter {i}")
+                gb_chapters.append(ch)
+            db.add_all(gb_chapters)
+            await db.flush()
+            print(f"✓ Created book '{book2.title}' with {len(gb_chapters)} chapters.")
+        else:
+            gb_chapters = (await db.execute(select(BookChapter).where(BookChapter.book_id == book2.id).order_by(BookChapter.number))).scalars().all()
+
+        # Conferences
+        conf1 = (await db.execute(select(Conference).where(Conference.slug == "advancing-bitcoin-2024"))).scalar_one_or_none()
+        if not conf1:
+            conf1 = Conference(name="Advancing Bitcoin 2024", slug="advancing-bitcoin-2024", year=2024, is_published=True, description="Advancing Bitcoin 2024 problems")
+            db.add(conf1)
+            await db.flush()
+            print(f"✓ Created conference '{conf1.name}'.")
+
+        conf2 = (await db.execute(select(Conference).where(Conference.slug == "bitcoin-2023"))).scalar_one_or_none()
+        if not conf2:
+            conf2 = Conference(name="Bitcoin 2023", slug="bitcoin-2023", year=2023, is_published=True, description="Bitcoin 2023 problems")
+            db.add(conf2)
+            await db.flush()
+            print(f"✓ Created conference '{conf2.name}'.")
+
+        # Problems + test cases for Programming Bitcoin
         for p_data in PROBLEMS:
             existing_problem = await db.get(Problem, p_data["id"])
             if existing_problem:
@@ -138,7 +184,14 @@ async def seed():
                 continue
 
             test_cases_data = p_data.pop("test_cases")
-            problem = Problem(**p_data, created_by=admin.id)
+            chapter_num = p_data.pop("chapter", 1)
+            
+            problem = Problem(
+                **p_data,
+                source_type="book",
+                book_chapter_id=pb_chapters[chapter_num - 1].id,
+                created_by=admin.id
+            )
             db.add(problem)
             await db.flush()
 
@@ -153,8 +206,47 @@ async def seed():
                 )
                 db.add(tc)
 
-            await db.commit()
             print(f"✓ Created problem '{problem.id}' with {len(test_cases_data)} test cases.")
+            
+        # Conference 1 Mock problems (6 problems)
+        for i in range(6):
+            pid = f"adv-btc-2024-prob-{i+1}"
+            if not await db.get(Problem, pid):
+                db.add(Problem(
+                    id=pid, title=f"Advancing Bitcoin 2024 Problem {i+1}", source_type="conference",
+                    conference_id=conf1.id, order_index=i, description="Mock problem.",
+                    starter_code={"python3": "def solve():\\n    pass"}, wrapper_code={"python3": "print('ok')"},
+                    checker_code="", time_limit=2.0, memory_limit=256, is_published=True, created_by=admin.id
+                ))
+                print(f"✓ Created mock problem '{pid}' for {conf1.name}.")
+        
+        # Conference 2 Mock problems (3 problems)
+        for i in range(3):
+            pid = f"btc-2023-prob-{i+1}"
+            if not await db.get(Problem, pid):
+                db.add(Problem(
+                    id=pid, title=f"Bitcoin 2023 Problem {i+1}", source_type="conference",
+                    conference_id=conf2.id, order_index=i, description="Mock problem.",
+                    starter_code={"python3": "def solve():\\n    pass"}, wrapper_code={"python3": "print('ok')"},
+                    checker_code="", time_limit=2.0, memory_limit=256, is_published=True, created_by=admin.id
+                ))
+                print(f"✓ Created mock problem '{pid}' for {conf2.name}.")
+                
+        # Grokking Bitcoin Mock problems (3 problems in Ch 1)
+        if book2 and gb_chapters:
+            gb_ch1 = gb_chapters[0]
+            for i in range(3):
+                pid = f"gb-ch1-prob-{i+1}"
+                if not (await db.get(Problem, pid)):
+                    db.add(Problem(
+                        id=pid, title=f"Grokking Ch1 Problem {i+1}", source_type="book", book_chapter_id=gb_ch1.id,
+                        order_index=i, description=f"Mock problem {i+1} for Grokking Bitcoin Chapter 1.",
+                        starter_code={"python3": "def solve():\n    pass"}, wrapper_code={"python3": "print('ok')"},
+                        checker_code="", time_limit=2.0, memory_limit=256, is_published=True, created_by=admin.id
+                    ))
+                    print(f"✓ Created mock problem '{pid}' for {book2.title} Ch 1.")
+
+        await db.commit()
 
     print("\nSeed complete!")
 
