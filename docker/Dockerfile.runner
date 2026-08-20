@@ -1,4 +1,4 @@
-# bitcoin-oj-runner — Custom Judge Container Image
+# hello-bitcoin-runner — Custom Judge Container Image
 #
 # Tier 1 Languages: Python 3, JavaScript (Node 20), Rust (stable)
 # Based on Debian Bookworm Slim for full control over runtimes.

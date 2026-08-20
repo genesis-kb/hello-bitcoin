@@ -1,9 +1,9 @@
 """FastAPI application entry point."""
 
 import logging
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
-from urllib.parse import urlparse
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,6 +29,12 @@ logger = logging.getLogger(__name__)
 
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 
+
+def _redact_url(url: str) -> str:
+    """Strip credentials from a connection URL before logging."""
+    return re.sub(r"(://)[^@/]+@", r"\1***:***@", url)
+
+
 # ── Rate limiter ──────────────────────────────────────────────────────────────
 # Imported from limiter.py — route modules import from there too to avoid
 # circular imports (main → routes → main).
@@ -40,13 +46,10 @@ async def lifespan(app: FastAPI):
     logger.info("Initialising database…")
     await init_db()
 
-    logger.info("Connecting to Redis queue (%s)…", REDIS_URL)
-    parsed_url = urlparse(REDIS_URL)
-    redis_settings = RedisSettings(
-        host=parsed_url.hostname or "localhost",
-        port=parsed_url.port or 6379,
-        database=int(parsed_url.path.lstrip("/")) if parsed_url.path.lstrip("/") else 0,
-    )
+    # V1: log only the redacted URL so Redis passwords don't appear in logs.
+    logger.info("Connecting to Redis queue (%s)…", _redact_url(REDIS_URL))
+    # V2: use from_dsn so credentials, TLS (rediss://), and DB index are preserved.
+    redis_settings = RedisSettings.from_dsn(REDIS_URL)
     app.state.redis_pool = await create_pool(redis_settings)
     app.state.limiter = limiter
 

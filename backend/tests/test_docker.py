@@ -9,7 +9,7 @@ def docker_client():
 @pytest.fixture(scope="module")
 def container(docker_client):
     c = docker_client.containers.run(
-        "bitcoin-oj-runner",
+        "hello-bitcoin-runner",
         "sleep infinity",
         detach=True
     )
@@ -18,7 +18,7 @@ def container(docker_client):
     c.remove(force=True)
 
 def test_image_exists(docker_client):
-    docker_client.images.get("bitcoin-oj-runner")
+    docker_client.images.get("hello-bitcoin-runner")
 
 def test_container_starts(container):
     container.reload()

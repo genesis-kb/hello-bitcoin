@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -19,6 +20,9 @@ from services.judging import judge_submission
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/submissions", tags=["submissions"])
+
+_SSE_TICKET_TTL = 60       # seconds — one-time ticket lifetime
+_SSE_TICKET_PREFIX = "sse_ticket:"
 
 
 # ── Submit ────────────────────────────────────────────────────────────────────
@@ -51,9 +55,53 @@ async def submit(
         await request.app.state.redis_pool.enqueue_job("process_submission", submission.id)
     except Exception as exc:
         logger.exception("ARQ enqueue failed for submission %d", submission.id)
+        # V1: clean up the orphaned PENDING row so it doesn't stay permanently pending.
+        try:
+            await db.delete(submission)
+            await db.commit()
+        except Exception:
+            logger.exception(
+                "Failed to delete orphaned submission %d after enqueue failure", submission.id
+            )
         raise HTTPException(status_code=500, detail=f"Queue error: {exc}") from exc
 
     return submission
+
+
+# ── SSE ticket — short-lived one-time credential for the stream ───────────────
+
+@router.post("/{submission_id}/stream-ticket", status_code=201)
+async def create_stream_ticket(
+    submission_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    V2: Issue a one-time, 60-second SSE ticket so the browser's EventSource
+    doesn't put the long-lived access token in the URL (and in Uvicorn/proxy logs).
+
+    Client flow:
+      1. POST here (with normal Authorization header) → receive { "ticket": "..." }
+      2. Open EventSource(`/api/submissions/{id}/stream?ticket=<ticket>`)
+    The ticket is single-use and expires after 60 seconds.
+    """
+    submission = await db.get(Submission, submission_id)
+    if not submission:
+        raise HTTPException(404, "Submission not found.")
+    if submission.user_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(403, "Access denied.")
+
+    ticket = uuid.uuid4().hex
+    redis = getattr(request.app.state, "redis_pool", None)
+    if redis is not None:
+        await redis.set(
+            f"{_SSE_TICKET_PREFIX}{ticket}",
+            str(current_user.id),
+            ex=_SSE_TICKET_TTL,
+        )
+
+    return {"ticket": ticket}
 
 
 # ── Server-Sent Events — real-time status stream ──────────────────────────────
@@ -62,9 +110,9 @@ async def submit(
 async def stream_submission(
     submission_id: int,
     req: Request,
-    token: str | None = None,          # EventSource can't set headers; accept via QS
+    ticket: str | None = None,          # Short-lived one-time SSE ticket
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_user_for_sse),  # reads Bearer OR ?token=
+    current_user: User = Depends(get_user_for_sse),  # validates ticket or Bearer
 ):
     """
     SSE endpoint.  The client connects once and receives status events until
@@ -72,7 +120,10 @@ async def stream_submission(
     repeated HTTP polling, cutting DB read load proportional to active users.
 
     Usage (JavaScript):
-        const es = new EventSource(`/api/submissions/${id}/stream?token=...`);
+        // 1. Get a one-time ticket (keeps access token out of server logs)
+        const { ticket } = await apiPost(`/submissions/${id}/stream-ticket`, {}).then(r => r.json());
+        // 2. Open the stream with the ticket
+        const es = new EventSource(`/api/submissions/${id}/stream?ticket=${ticket}`);
         es.onmessage = e => { const data = JSON.parse(e.data); ... };
     """
     submission = await db.get(Submission, submission_id)

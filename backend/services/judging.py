@@ -28,6 +28,35 @@ from models import Problem, Submission, TestCase
 
 logger = logging.getLogger(__name__)
 
+# V1: language aliases — some problems store wrapper code under the canonical
+# runtime name ('node' for JavaScript), so we try both keys.
+_LANGUAGE_ALIASES: dict[str, list[str]] = {
+    "javascript": ["javascript", "node"],
+    "python3": ["python3", "python"],
+    "rust": ["rust"],
+}
+
+
+def _get_wrapper(wrapper_code: dict, language: str) -> str:
+    """
+    Look up the wrapper for a given language, trying aliases if the primary key
+    is not found.  Handles legacy 'node' keys stored for 'javascript' submissions.
+    """
+    if not isinstance(wrapper_code, dict):
+        return ""
+    for key in _LANGUAGE_ALIASES.get(language, [language]):
+        if key in wrapper_code:
+            return wrapper_code[key]
+    return ""
+
+
+def _comment_separator(language: str) -> str:
+    """Return a language-appropriate comment separator for the judge harness."""
+    # V2: use '//' for JS/Rust so the separator doesn't cause a syntax error
+    if language in ("javascript", "rust"):
+        return "// ─── JUDGE HARNESS (hidden) ───"
+    return "# ─── JUDGE HARNESS (hidden) ───"
+
 
 async def _judge_one_case(
     language: str,
@@ -89,15 +118,14 @@ async def judge_submission(submission_id: int) -> None:
         await db.commit()
 
         # Build full source (user code + hidden judge harness wrapper)
-        wrapper = (
-            problem.wrapper_code.get(submission.language, "")
-            if isinstance(problem.wrapper_code, dict)
-            else ""
-        )
+        # V1: use alias fallback so 'javascript' finds 'node' wrapper keys.
+        wrapper = _get_wrapper(problem.wrapper_code, submission.language)
         if wrapper and wrapper.strip():
+            # V2: language-appropriate separator prevents syntax errors.
+            separator = _comment_separator(submission.language)
             full_source = (
                 submission.source
-                + "\n\n# ─── JUDGE HARNESS (hidden) ───\n"
+                + f"\n\n{separator}\n"
                 + wrapper
             )
         else:
@@ -180,7 +208,15 @@ async def judge_submission(submission_id: int) -> None:
                     overall_verdict = run_result.verdict
             elif run_result.verdict == "AC":
                 cases_passed += 1
-            # else: unknown verdict — treat as WA
+            else:
+                # V3: unknown verdict (e.g. unrecognised checker return) → WA,
+                # not AC, to prevent a buggy checker from inflating scores.
+                if overall_verdict == "AC":
+                    overall_verdict = "WA"
+                    logger.warning(
+                        "Submission %d: unknown verdict %r from checker; treating as WA.",
+                        submission_id, run_result.verdict,
+                    )
 
         # Persist final result
         submission.status = "DONE"

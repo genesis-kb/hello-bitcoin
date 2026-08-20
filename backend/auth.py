@@ -2,7 +2,7 @@
 
 Token revocation is implemented via a per-JTI Redis key:
   - On refresh-token creation  → store JTI in Redis with TTL = REFRESH_TOKEN_EXPIRE_DAYS
-  - On token refresh (rotate)  → delete old JTI, issue new one
+  - On token refresh (rotate)  → atomically delete old JTI via GETDEL, issue new one
   - On logout                  → delete JTI immediately (token becomes invalid)
   - On validation              → check JTI exists; reject if missing
 """
@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -33,6 +33,9 @@ bearer_scheme = HTTPBearer()
 # Redis client is injected lazily from app.state to avoid import-time coupling.
 # All revocation helpers accept an optional `redis` parameter; when None they
 # skip revocation silently (safe for unit tests without Redis).
+
+_REVOKE_PREFIX = "revoked_jti:"
+_SSE_TICKET_PREFIX = "sse_ticket:"
 
 
 # ── Password ──────────────────────────────────────────────────────────────────
@@ -76,9 +79,6 @@ def decode_token(token: str) -> dict:
 
 
 # ── JTI revocation helpers ────────────────────────────────────────────────────
-
-_REVOKE_PREFIX = "revoked_jti:"
-
 
 async def store_refresh_jti(redis, jti: str) -> None:
     """Register a refresh token JTI as valid.  TTL mirrors token lifetime."""
@@ -140,7 +140,8 @@ async def get_current_user_optional(
 
 
 async def get_user_for_sse(
-    token: Optional[str] = None,  # ?token= query param — used by EventSource
+    request: Request,
+    ticket: Optional[str] = None,      # ?ticket= — one-time SSE credential
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(
         HTTPBearer(auto_error=False)
     ),
@@ -149,23 +150,47 @@ async def get_user_for_sse(
     """
     Auth dependency for the SSE streaming endpoint.
 
-    The browser's native EventSource API cannot set custom HTTP headers,
-    so the access token is accepted either as:
-      - Authorization: Bearer <token>  (normal API clients, fetch/axios)
-      - ?token=<access_token>          (browser EventSource)
+    Accepts authentication via:
+      1. Authorization: Bearer <access_token>  — normal API clients (fetch/axios).
+      2. ?ticket=<one_time_sse_ticket>          — browser EventSource.
+         The ticket is a short-lived (60 s), single-use Redis key mapping to a
+         user_id, keeping the long-lived access token out of server access logs.
 
     The Bearer header takes precedence when both are present.
     """
-    raw_token = credentials.credentials if credentials else token
-    if not raw_token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    redis = getattr(request.app.state, "redis_pool", None)
 
-    payload = decode_token(raw_token)
-    if payload.get("type") != "access":
-        raise HTTPException(status_code=401, detail="Invalid token type")
+    # Option 1: Bearer token (fetch/axios clients)
+    if credentials:
+        payload = decode_token(credentials.credentials)
+        if payload.get("type") != "access":
+            raise HTTPException(status_code=401, detail="Invalid token type")
+        user_id = int(payload["sub"])
+        user = await db.get(User, user_id)
+        if not user or not user.is_active:
+            raise HTTPException(status_code=401, detail="User not found or inactive")
+        return user
 
-    user_id = int(payload["sub"])
-    user = await db.get(User, user_id)
-    if not user or not user.is_active:
-        raise HTTPException(status_code=401, detail="User not found or inactive")
-    return user
+    # Option 2: one-time SSE ticket (browser EventSource)
+    if ticket and redis is not None:
+        # GETDEL atomically consumes the ticket so it can only be used once
+        raw = await redis.getdel(f"{_SSE_TICKET_PREFIX}{ticket}")
+        if raw is None:
+            raise HTTPException(status_code=401, detail="SSE ticket is invalid or expired")
+        try:
+            user_id = int(raw)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=401, detail="SSE ticket is malformed")
+        user = await db.get(User, user_id)
+        if not user or not user.is_active:
+            raise HTTPException(status_code=401, detail="User not found or inactive")
+        return user
+
+    # Option 3: ticket present but Redis unavailable (dev/test without Redis)
+    if ticket and redis is None:
+        raise HTTPException(
+            status_code=503,
+            detail="SSE ticket validation requires Redis. Use Bearer token authentication instead.",
+        )
+
+    raise HTTPException(status_code=401, detail="Not authenticated")

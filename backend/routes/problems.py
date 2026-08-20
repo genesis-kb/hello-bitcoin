@@ -42,6 +42,17 @@ async def get_problem(
     if not problem.is_published and not (current_user and current_user.role == "admin"):
         raise HTTPException(404, "Problem not found.")
 
+    # V1: also hide problems whose parent conference or book is unpublished,
+    # matching the behaviour of the book/conference problem list endpoints.
+    is_admin = current_user and current_user.role == "admin"
+    if not is_admin:
+        if problem.source_type == "conference" and problem.conference:
+            if not problem.conference.is_published:
+                raise HTTPException(404, "Problem not found.")
+        elif problem.source_type == "book" and problem.book_chapter and problem.book_chapter.book:
+            if not problem.book_chapter.book.is_published:
+                raise HTTPException(404, "Problem not found.")
+
     parent_name = None
     parent_slug = None
     if problem.source_type == "conference" and problem.conference:

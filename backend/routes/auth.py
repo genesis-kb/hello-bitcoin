@@ -93,17 +93,20 @@ async def refresh(request: Request, body: RefreshRequest, db: AsyncSession = Dep
     jti = payload.get("jti")
     redis = getattr(request.app.state, "redis_pool", None)
 
-    # Validate that this JTI hasn't been revoked
-    if jti and not await is_refresh_jti_valid(redis, jti):
-        raise HTTPException(401, "Refresh token has been revoked.")
+    # V1: atomically consume the JTI with GETDEL so concurrent refresh requests
+    # cannot both succeed — token rotation is now strictly single-use.
+    if jti and redis is not None:
+        consumed = await redis.getdel(f"revoked_jti:{jti}")
+        if consumed is None:
+            raise HTTPException(401, "Refresh token has been revoked or already used.")
+    elif jti and redis is None:
+        # Redis unavailable (dev/test) — fall back to non-atomic check
+        if not await is_refresh_jti_valid(redis, jti):
+            raise HTTPException(401, "Refresh token has been revoked.")
 
     user = await db.get(User, int(payload["sub"]))
     if not user or not user.is_active:
         raise HTTPException(401, "User not found or inactive.")
-
-    # Rotate: revoke old JTI, issue new refresh token
-    if jti:
-        await revoke_refresh_jti(redis, jti)
 
     new_refresh = create_refresh_token(user.id)
     new_payload = decode_token(new_refresh)

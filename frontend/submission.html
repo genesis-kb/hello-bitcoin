@@ -185,9 +185,20 @@
       });
 
       if (sub.status !== 'DONE' && sub.status !== 'ERROR') {
-        const token = localStorage.getItem('access_token');
         const streamUrl = `/api/submissions/${subId}/stream`;
-        const es = new EventSource(streamUrl + (token ? `?token=${token}` : ''));
+        // V1: fetch a short-lived one-time ticket so the access token never
+        // appears in the SSE URL (and therefore in Uvicorn/proxy access logs).
+        let esUrl = streamUrl;
+        try {
+          const ticketRes = await apiPost(`/submissions/${subId}/stream-ticket`, {});
+          if (ticketRes.ok) {
+            const { ticket } = await ticketRes.json();
+            esUrl = `${streamUrl}?ticket=${ticket}`;
+          }
+        } catch (_) {
+          // Fall back to unauthenticated stream if ticket fetch fails
+        }
+        const es = new EventSource(esUrl);
 
         es.onmessage = (e) => {
           try {

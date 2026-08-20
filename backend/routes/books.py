@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, with_loader_criteria
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import get_current_user_optional
@@ -53,8 +53,19 @@ async def get_book_chapter(
         raise HTTPException(404, "Book not found.")
     if not book.is_published and not (current_user and current_user.role == "admin"):
         raise HTTPException(404, "Book not found.")
-        
-    chapter_q = select(BookChapter).options(selectinload(BookChapter.problems)).where(
+
+    is_admin = current_user and current_user.role == "admin"
+
+    # V1: filter unpublished problems from the eager-loaded relationship for non-admins
+    # so chapter detail doesn't leak unpublished problem titles/metadata.
+    if is_admin:
+        problems_loader = selectinload(BookChapter.problems)
+    else:
+        problems_loader = selectinload(BookChapter.problems).options(
+            with_loader_criteria(Problem, Problem.is_published.is_(True))
+        )
+
+    chapter_q = select(BookChapter).options(problems_loader).where(
         BookChapter.book_id == book.id,
         BookChapter.number == chapter_num
     )

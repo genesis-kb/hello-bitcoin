@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, JSON, Index, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, JSON, Index, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db import Base
@@ -56,6 +56,11 @@ class Book(Base):
 
 class BookChapter(Base):
     __tablename__ = "book_chapters"
+    # V1: enforce uniqueness of chapter number within a book at the DB level.
+    # The create_chapter endpoint catches this and returns a clean 409.
+    __table_args__ = (
+        UniqueConstraint("book_id", "number", name="uq_chapter_book_number"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     book_id: Mapped[int] = mapped_column(Integer, ForeignKey("books.id", ondelete="CASCADE"), nullable=False)
@@ -124,7 +129,9 @@ class Submission(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
-    problem_id: Mapped[str] = mapped_column(String(100), ForeignKey("problems.id"), nullable=False)
+    # V2: RESTRICT makes the constraint violation predictable and catchable;
+    # the delete_problem endpoint checks for submissions and returns 409 first.
+    problem_id: Mapped[str] = mapped_column(String(100), ForeignKey("problems.id", ondelete="RESTRICT"), nullable=False)
     language: Mapped[str] = mapped_column(String(30), default="python3")
     source: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="PENDING")  # PENDING | JUDGING | DONE | ERROR

@@ -15,7 +15,7 @@ Input JSON fields:
 
 Output JSON fields:
   verdict      : "AC" | "WA" | "TLE" | "RE" | "CE"
-  stdout       : captured stdout
+  stdout       : captured stdout (truncated to 256 KiB)
   stderr       : captured stderr (truncated to 2048 chars)
   time_ms      : wall-clock milliseconds
   exit_code    : process exit code
@@ -26,6 +26,7 @@ Output JSON fields:
 import json
 import os
 import resource
+import signal
 import subprocess
 import sys
 import tempfile
@@ -47,6 +48,9 @@ def check(test_input: str, user_output: str, expected_output: str) -> dict:
     return {"verdict": "WA", "score": 0.0,
             "message": f"Expected {len(exp_lines)} lines, got {len(user_lines)} lines."}
 """
+
+# V4: cap stdout so unbounded output cannot exhaust the harness
+_MAX_STDOUT_BYTES = 256 * 1024  # 256 KiB
 
 
 def run_checker(checker_code: str, test_input: str, user_output: str, expected_output: str) -> dict:
@@ -72,17 +76,44 @@ def run_checker(checker_code: str, test_input: str, user_output: str, expected_o
         return {"verdict": "WA", "score": 0.0, "message": f"Checker error: {exc}"}
 
 
+def _make_preexec(memory_limit_mb: int):
+    """Return a preexec_fn that applies RLIMIT_AS and creates a new process group."""
+    def preexec():
+        # V2: memory limit applied here (child process), NOT to the compiler
+        limit_bytes = memory_limit_mb * 1024 * 1024
+        try:
+            resource.setrlimit(resource.RLIMIT_AS, (limit_bytes, limit_bytes))
+        except Exception:
+            pass  # Unsupported on some platforms; container mem_limit still applies
+        # V3: new process group so we can kill the whole tree on timeout
+        os.setsid()
+    return preexec
+
+
+def _setsid_only():
+    """preexec_fn for JS (memory managed by --max-old-space-size, not RLIMIT_AS)."""
+    os.setsid()
+
+
 def main():
     if len(sys.argv) < 2:
         _out("RE", stderr="Harness: no input file specified.")
         return
 
+    req_file = sys.argv[1]
     try:
-        with open(sys.argv[1]) as f:
+        with open(req_file) as f:
             req = json.load(f)
     except Exception as e:
         _out("RE", stderr=f"Harness: failed to read input: {e}")
         return
+    finally:
+        # V1: delete the request file immediately so submitted code cannot
+        # enumerate /tmp and read expected_output / checker_code.
+        try:
+            os.remove(req_file)
+        except Exception:
+            pass
 
     language        = req.get("language", "python3")
     source          = req.get("source", "")
@@ -92,13 +123,9 @@ def main():
     expected_output = req.get("expected_output", "")
     checker_code    = req.get("checker_code", "")
 
-    # ── Apply per-process memory limits ──────────────────────────────────────
-    if language != "javascript":
-        limit_bytes = memory_limit_mb * 1024 * 1024
-        try:
-            resource.setrlimit(resource.RLIMIT_AS, (limit_bytes, limit_bytes))
-        except Exception:
-            pass  # Unsupported on some platforms; container mem_limit still applies
+    # V2: memory limit is applied only to the executed solution via preexec_fn,
+    # NOT to the compiler (rustc needs ~400–800 MB; applying the limit here
+    # would cause valid Rust submissions to get CE).
 
     with tempfile.TemporaryDirectory(dir="/tmp") as tmpdir:
         ext_map = {"python3": "py", "javascript": "js", "rust": "rs"}
@@ -109,6 +136,7 @@ def main():
             f.write(source)
 
         # ── Compile if needed ─────────────────────────────────────────────────
+        # Compilation runs WITHOUT memory limits (rustc needs more than 256 MB)
         if language == "rust":
             bin_path = os.path.join(tmpdir, "solution")
             try:
@@ -147,22 +175,56 @@ def main():
             return
 
         # ── Execute ───────────────────────────────────────────────────────────
+        # V2: memory limit applied via preexec_fn, after compilation.
+        # V3: use Popen + process group so we can SIGKILL the whole tree on timeout.
+        if language == "javascript":
+            preexec = _setsid_only
+        else:
+            preexec = _make_preexec(memory_limit_mb)
+
         start = time.monotonic()
+        timed_out = False
+        stdin_bytes = stdin_data.encode() if isinstance(stdin_data, str) else stdin_data
         try:
-            proc = subprocess.run(
+            proc = subprocess.Popen(
                 cmd,
-                input=stdin_data,
-                capture_output=True,
-                text=True,
-                timeout=time_limit,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 cwd=tmpdir,
+                preexec_fn=preexec,
             )
-        except subprocess.TimeoutExpired:
+            try:
+                raw_stdout, raw_stderr = proc.communicate(
+                    input=stdin_bytes,
+                    timeout=time_limit,
+                )
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                # V3: kill the entire process group (catches forked children)
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except Exception:
+                    proc.kill()
+                proc.wait()
+                raw_stdout, raw_stderr = b"", b""
+        except Exception as exc:
+            _out("RE", stderr=f"Harness: failed to exec process: {exc}")
+            return
+
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+
+        if timed_out:
             _out("TLE", stderr=f"Time limit exceeded ({time_limit}s).",
                  time_ms=int(time_limit * 1000))
             return
 
-        elapsed_ms = int((time.monotonic() - start) * 1000)
+        # V4: truncate stdout to 256 KiB before passing to checker / output
+        if len(raw_stdout) > _MAX_STDOUT_BYTES:
+            raw_stdout = raw_stdout[:_MAX_STDOUT_BYTES]
+
+        stdout_text = raw_stdout.decode("utf-8", errors="replace")
+        stderr_text = raw_stderr.decode("utf-8", errors="replace")
 
         # ── Measure peak memory (best-effort) ────────────────────────────────
         try:
@@ -176,18 +238,18 @@ def main():
             memory_kb = 0
 
         if proc.returncode != 0:
-            _out("RE", stdout=proc.stdout, stderr=proc.stderr[:2048],
+            _out("RE", stdout=stdout_text, stderr=stderr_text[:2048],
                  time_ms=elapsed_ms, exit_code=proc.returncode, memory_kb=memory_kb)
             return
 
         # ── Run checker inside the sandbox ───────────────────────────────────
-        checker_result = run_checker(checker_code, stdin_data, proc.stdout, expected_output)
+        checker_result = run_checker(checker_code, stdin_data, stdout_text, expected_output)
         verdict = checker_result.get("verdict", "WA")
 
         _out(
             verdict,
-            stdout=proc.stdout,
-            stderr=proc.stderr[:2048],
+            stdout=stdout_text,
+            stderr=stderr_text[:2048],
             time_ms=elapsed_ms,
             exit_code=proc.returncode,
             memory_kb=memory_kb,
