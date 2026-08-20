@@ -1,26 +1,36 @@
-"""App settings — read from environment variables (with sensible defaults)."""
+"""App settings — read from environment variables or .env file (with sensible defaults)."""
 
 import os
 import sys
 from pathlib import Path
+from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).parent
+
+# ── Load environment variables from .env ─────────────────────────────────────
+# Check project root (.env) and backend directory (.env)
+load_dotenv(BASE_DIR.parent / ".env")
+load_dotenv(BASE_DIR / ".env")
 
 # ── Database ────────────────────────────────────────────────────────────────
 # Switch to PostgreSQL for production:
 #   DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/oj
-DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite+aiosqlite:///{BASE_DIR}/data/judge.db")
+# SQLite fallback placed directly under BASE_DIR so SQLite can always
+# create the file without needing a data/ subdirectory.
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite+aiosqlite:///{BASE_DIR}/judge.db")
 
 # ── JWT ──────────────────────────────────────────────────────────────────────
 _DEFAULT_SECRET = "CHANGE_ME_IN_PRODUCTION_super_secret_key_32ch"
 SECRET_KEY = os.getenv("SECRET_KEY", _DEFAULT_SECRET)
 
-# Fail fast in any non-development environment with a weak key.
-_is_dev = os.getenv("APP_ENV", "development").lower() in ("development", "dev", "test")
+# Default to production — require explicit APP_ENV=development (or dev/test) to opt in.
+# An unset APP_ENV is treated as production so deployments that forget to set
+# it are protected, not accidentally permissive.
+_is_dev = os.getenv("APP_ENV", "production").lower() in ("development", "dev", "test")
 if not _is_dev and (not SECRET_KEY or SECRET_KEY == _DEFAULT_SECRET or len(SECRET_KEY) < 32):
     sys.exit(
         "FATAL: SECRET_KEY must be set to a random string of ≥32 characters in production. "
-        "Set APP_ENV=development to suppress this check locally."
+        "Set APP_ENV=development in your .env or environment to suppress this check locally."
     )
 if SECRET_KEY == _DEFAULT_SECRET:
     import logging as _logging
@@ -40,8 +50,6 @@ ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@example.com")
 # ── CORS ─────────────────────────────────────────────────────────────────────
 # Comma-separated list of allowed origins. Wildcard "*" is NOT allowed when
 # credentials are enabled; explicit origins must be listed.
-# Note: do NOT add "null" here — it is the Origin sent by file:// pages and
-# sandboxed iframes and would allow any local HTML file to make credentialed requests.
 ALLOWED_ORIGINS: list[str] = [
     o.strip()
     for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:5500").split(",")
@@ -53,7 +61,7 @@ RATE_LIMIT_AUTH = os.getenv("RATE_LIMIT_AUTH", "10/minute")
 RATE_LIMIT_SUBMIT = os.getenv("RATE_LIMIT_SUBMIT", "20/minute")
 
 # ── Docker judge pool ────────────────────────────────────────────────────────
-JUDGE_IMAGE = os.getenv("JUDGE_IMAGE", "bitcoin-oj-runner")
+JUDGE_IMAGE = os.getenv("JUDGE_IMAGE", "hello-bitcoin-runner")
 
 # Global memory limit for the judge sandboxes (in MB)
 GLOBAL_MAX_MEMORY_MB = int(os.getenv("GLOBAL_MAX_MEMORY_MB", "8192"))

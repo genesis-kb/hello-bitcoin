@@ -190,7 +190,17 @@ async def create_chapter(
     book = await db.get(Book, book_id)
     if not book:
         raise HTTPException(404, "Book not found.")
-        
+
+    # Pre-check for duplicate chapter number to give a clear 409 before hitting the DB constraint.
+    existing_ch = (await db.execute(
+        select(BookChapter).where(
+            BookChapter.book_id == book_id,
+            BookChapter.number == body.number,
+        )
+    )).scalar_one_or_none()
+    if existing_ch:
+        raise HTTPException(409, f"Chapter {body.number} already exists in this book.")
+
     chapter = BookChapter(
         book_id=book_id,
         number=body.number,
@@ -198,7 +208,11 @@ async def create_chapter(
         description=body.description
     )
     db.add(chapter)
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise HTTPException(409, f"Chapter {body.number} already exists in this book.")
     await db.refresh(chapter)
     return chapter
 
@@ -340,6 +354,14 @@ async def update_problem(
     for field, value in body.model_dump(exclude_none=True).items():
         setattr(problem, field, value)
 
+    # V1: clear the opposite parent FK so only one relationship remains active
+    # when source_type changes (e.g. conference → book or book → conference).
+    effective_source_type = body.model_dump(exclude_none=True).get("source_type", problem.source_type)
+    if effective_source_type == "conference":
+        problem.book_chapter_id = None
+    elif effective_source_type == "book":
+        problem.conference_id = None
+
     await db.commit()
     await db.refresh(problem)
     tc_result = await db.execute(
@@ -357,6 +379,19 @@ async def delete_problem(
     problem = await db.get(Problem, problem_id)
     if not problem:
         raise HTTPException(404, "Problem not found.")
+
+    # V3: reject deletion if submissions exist rather than hitting an unhandled
+    # DB integrity error from the RESTRICT FK on Submission.problem_id.
+    has_submissions = (await db.execute(
+        select(Submission.id).where(Submission.problem_id == problem_id).limit(1)
+    )).first()
+    if has_submissions:
+        raise HTTPException(
+            409,
+            "Cannot delete a problem that has submissions. "
+            "Unpublish it instead, or delete all submissions first."
+        )
+
     await db.delete(problem)
     await db.commit()
 

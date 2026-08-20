@@ -120,8 +120,21 @@ async function renderNav(activePage = '') {
       userEl.innerHTML = `
         <span class="text-sm text-zinc-300"><span class="font-medium text-zinc-100">${escHtml(user.username)}</span></span>
         <a href="#" id="logout-btn" class="ml-3 text-xs text-red-400 hover:text-red-300 no-underline">Logout</a>`;
-      document.getElementById('logout-btn').addEventListener('click', e => {
+      document.getElementById('logout-btn').addEventListener('click', async e => {
         e.preventDefault();
+        // V1: revoke the refresh token server-side so it can't be reused after logout.
+        const refreshToken = Auth.getRefresh();
+        if (refreshToken) {
+          try {
+            await fetch(`${API}/auth/logout`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ refresh_token: refreshToken }),
+            });
+          } catch (_) {
+            // Proceed with local logout even if the server call fails
+          }
+        }
         Auth.clear();
         window.location.href = '/login.html';
       });

@@ -4,15 +4,20 @@ version: "3.9"
 x-common-env: &common-env
   DATABASE_URL: postgresql+asyncpg://oj:oj@db:5432/oj
   REDIS_URL: redis://redis:6379/0
-  SECRET_KEY: ${SECRET_KEY:-change_me_generate_with_openssl_rand_hex_32}
+  # No fallback — Compose fails at startup if SECRET_KEY is unset in .env / shell.
+  # Generate one with: openssl rand -hex 32
+  SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set (e.g. export SECRET_KEY=$(openssl rand -hex 32))}
   ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8001}
   APP_ENV: ${APP_ENV:-development}
-  JUDGE_IMAGE: bitcoin-oj-runner
+  JUDGE_IMAGE: hello-bitcoin-runner
   ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
-  GLOBAL_MAX_MEMORY_MB: ${GLOBAL_MAX_MEMORY_MB:-7680}
-  SANDBOX_MEMORY_MB: ${SANDBOX_MEMORY_MB:-256}
-  RATE_LIMIT_AUTH: "100000/minute"
-  RATE_LIMIT_SUBMIT: "100000/minute"
+  GLOBAL_MAX_MEMORY_MB: ${GLOBAL_MAX_MEMORY_MB:-7168}
+  # 1024 MB gives rustc enough headroom (typically 400–800 MB needed).
+  # Per-problem time/memory limits are enforced separately inside the sandbox.
+  SANDBOX_MEMORY_MB: ${SANDBOX_MEMORY_MB:-1024}
+  # Secure rate-limit defaults
+  RATE_LIMIT_AUTH: ${RATE_LIMIT_AUTH:-10/minute}
+  RATE_LIMIT_SUBMIT: ${RATE_LIMIT_SUBMIT:-20/minute}
 
 services:
 
@@ -46,7 +51,7 @@ services:
     build:
       context: ./docker
       dockerfile: Dockerfile.runner
-    image: bitcoin-oj-runner
+    image: hello-bitcoin-runner
     # This service only builds the image; it never runs.
     entrypoint: ["true"]
 
@@ -55,7 +60,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    image: bitcoin-oj-api
+    image: hello-bitcoin-api
     ports:
       - "${API_PORT:-8001}:8001"
     environment:
@@ -86,7 +91,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    image: bitcoin-oj-api
+    image: hello-bitcoin-api
     environment:
       <<: *common-env
     depends_on:

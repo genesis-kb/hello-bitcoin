@@ -518,7 +518,7 @@
       msg.textContent = '';
 
       const checker = editorValue('checker-wrap').trim();
-      const isDefaultHint = checker.startsWith('# Leave this empty');
+      const isDefaultHint = checker === DEFAULT_CHECKER_HINT.trim();  // V1: full comparison, not startsWith
 
       let starterJson = {};
       let wrapperJson = {};

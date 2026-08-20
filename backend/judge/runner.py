@@ -11,6 +11,10 @@ from .pool import ContainerPool
 
 logger = logging.getLogger(__name__)
 
+# Hard deadline for the entire docker exec (compile + run + check).
+# Must exceed: time_limit + compile timeout (30s) + checker overhead.
+_EXEC_DEADLINE_SECONDS = 120.0
+
 
 @dataclass
 class RunResult:
@@ -38,9 +42,9 @@ def _exec_code(
     """
     Blocking function — run inside asyncio.run_in_executor().
 
-    The full request (including checker_code and expected_output) is sent to
-    the Docker container so the checker executes inside the sandbox, never on
-    the host process.
+    The request is decoded into /tmp and immediately deleted by run.py
+    before user code is compiled and executed, preventing solution code from
+    accessing hidden test cases or expected outputs.
     """
     try:
         request = {
@@ -58,10 +62,11 @@ def _exec_code(
         req_id = uuid.uuid4().hex
         req_file = f"/tmp/{req_id}.json"
 
-        # Inject JSON via base64 to avoid put_archive failing on tmpfs
+        # Decode into tmpfs /tmp and execute harness.
+        # run.py deletes req_file in its finally block before compiling/running user code.
         cmd = (
             f"sh -c 'echo {req_b64} | base64 -d > {req_file} "
-            f"&& python3 /judge/run.py {req_file}; rm -f {req_file}'"
+            f"&& python3 /judge/run.py {req_file}'"
         )
 
         exit_code, raw_output = container.exec_run(
@@ -110,16 +115,20 @@ async def run_code(
     """Acquire a container from the pool and run code + checker asynchronously."""
     loop = asyncio.get_running_loop()  # Correct API for Python 3.10+
     async with pool.acquire() as container:
-        result = await loop.run_in_executor(
-            None,
-            _exec_code,
-            container,
-            language,
-            source,
-            stdin,
-            time_limit,
-            memory_limit,
-            expected_output,
-            checker_code,
+        # V3: enforce async deadline on exec_run with wait_for
+        result = await asyncio.wait_for(
+            loop.run_in_executor(
+                None,
+                _exec_code,
+                container,
+                language,
+                source,
+                stdin,
+                time_limit,
+                memory_limit,
+                expected_output,
+                checker_code,
+            ),
+            timeout=_EXEC_DEADLINE_SECONDS,
         )
         return result

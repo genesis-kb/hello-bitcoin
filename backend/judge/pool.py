@@ -2,27 +2,33 @@
 
 import asyncio
 import logging
+import os
+import socket
 import time
+import uuid
 from contextlib import asynccontextmanager
 from typing import Optional
 
 import docker
 import docker.errors
 
-import os
 from config import JUDGE_IMAGE, JUDGE_POOL_SIZE, SANDBOX_MEMORY_MB
 
 logger = logging.getLogger(__name__)
 
-LABEL_VALUE = os.environ.get("JUDGE_POOL_LABEL", "runner")
+# Scope the cleanup label to THIS worker process so multiple workers on the
+# same Docker daemon don't kill each other's live runner containers.
+_WORKER_ID = f"{socket.gethostname()}-{os.getpid()}"
+LABEL_KEY = "hello-bitcoin-worker"
+LABEL_VALUE = os.environ.get("JUDGE_POOL_LABEL", _WORKER_ID)
 
 
 class ContainerPool:
     """
     Maintains a fixed-size pool of warm Docker containers.
 
-    Each container is the custom bitcoin-oj-runner image running
-    `sleep infinity`.  Submissions are executed via docker exec, not
+    Each container is the custom hello-bitcoin-runner image running
+    `sleep infinity`. Submissions are executed via docker exec, not
     docker run, avoiding cold-start overhead.
 
     Tier 1 languages (Python, JS, Rust) all run in the same image.
@@ -76,7 +82,7 @@ class ContainerPool:
     @asynccontextmanager
     async def acquire(self, timeout: float = 10800.0):
         """
-        Async context manager.  Yields a running container from the pool.
+        Async context manager. Yields a running container from the pool.
         On exit, returns the container to the pool (replacing if dead).
         """
         try:
@@ -107,8 +113,9 @@ class ContainerPool:
     # ── Private helpers ───────────────────────────────────────────────────────
 
     def _cleanup_old_containers(self) -> None:
+        # Only clean up containers owned by THIS worker process
         try:
-            for c in self._client.containers.list(filters={"label": f"bitcoin-oj={LABEL_VALUE}"}):
+            for c in self._client.containers.list(filters={"label": f"{LABEL_KEY}={LABEL_VALUE}"}):
                 try:
                     c.stop(timeout=2)
                     c.remove(force=True)
@@ -127,7 +134,9 @@ class ContainerPool:
         self._containers.clear()
 
     def _create_container(self, index: int):
-        name = f"bitcoin-oj-runner-{index}-{int(time.time())}"
+        # UUID suffix prevents name collision when replicas start within the same second
+        unique_suffix = uuid.uuid4().hex[:8]
+        name = f"hello-bitcoin-runner-{index}-{int(time.time())}-{unique_suffix}"
         return self._client.containers.run(
             self.image,
             command="sleep infinity",
@@ -137,8 +146,11 @@ class ContainerPool:
             nano_cpus=500_000_000,      # 0.5 vCPU
             read_only=True,
             tmpfs={"/tmp": "size=64m,exec,mode=1777"},
-            labels={"bitcoin-oj": LABEL_VALUE},
+            # Scoped per-worker label — safe to clean up on this worker's restart
+            labels={LABEL_KEY: LABEL_VALUE},
             name=name,
+            # Cap process count to prevent fork-bomb from exhausting host PIDs
+            pids_limit=64,
         )
 
     async def _replace_container(self, idx: int) -> None:
@@ -158,7 +170,7 @@ class ContainerPool:
                 await loop.run_in_executor(None, _stop_container, dead_container)
             except Exception:
                 pass
-            
+
             try:
                 loop2 = asyncio.get_running_loop()
                 replacement = await loop2.run_in_executor(None, self._create_container, idx)
