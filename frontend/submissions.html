@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Submissions — Hello Bitcoin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+  <script src="/theme.js"></script>
+  <link rel="stylesheet" href="/style.css">
+</head>
+
+<body class="min-h-full bg-zinc-950 text-zinc-100 font-sans antialiased">
+  <nav class="sticky top-0 z-50 border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-md">
+    <div class="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
+      <a href="/index.html"
+        class="flex items-center gap-2.5 font-bold text-zinc-100 no-underline hover:no-underline shrink-0">
+        <span
+          class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400 text-base border border-amber-500/30">₿</span>
+        <span><span class="text-amber-400">Hello</span> Bitcoin</span>
+      </a>
+      <div class="flex items-center gap-6" id="nav-links"></div>
+      <div id="nav-user" class="shrink-0"></div>
+    </div>
+  </nav>
+
+  <main class="max-w-6xl mx-auto px-4 py-8 pb-16">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+      <h1 id="page-title" class="text-2xl font-bold text-zinc-50">My Submissions</h1>
+      <a href="/index.html"
+        class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-zinc-700 text-sm text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 no-underline transition">
+        ← Problems
+      </a>
+    </div>
+
+    <div class="rounded-xl border border-zinc-800 bg-zinc-900/40 shadow-xl shadow-black/20 overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-zinc-800 text-left">
+              <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">#</th>
+              <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">Problem</th>
+              <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">Language</th>
+              <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">Verdict</th>
+              <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">Score</th>
+              <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">Time</th>
+              <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">Submitted</th>
+            </tr>
+          </thead>
+          <tbody id="subs-body" class="divide-y divide-zinc-800/80">
+            <tr>
+              <td colspan="7" class="px-4 py-12 text-center text-zinc-500"><span class="spinner"></span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <script src="/app.js?v=2"></script>
+  <script>
+    async function init() {
+      await renderNav('submissions');
+      requireAuth();
+
+      const params = new URLSearchParams(location.search);
+      const problemFilter = params.get('problem');
+      if (problemFilter) {
+        document.getElementById('page-title').textContent = `Submissions · ${problemFilter}`;
+      }
+
+      const path = '/submissions/my' + (problemFilter ? `?problem_id=${problemFilter}` : '');
+      const res = await apiGet(path);
+      if (!res.ok) { renderEmpty('Failed to load submissions.'); return; }
+
+      const subs = await res.json();
+      renderSubs(subs);
+
+      const hasPending = subs.some(s => s.status === 'PENDING' || s.status === 'JUDGING');
+      if (hasPending) setTimeout(() => location.reload(), 3000);
+    }
+
+    function renderEmpty(msg) {
+      document.getElementById('subs-body').innerHTML =
+        `<tr><td colspan="7" class="px-4 py-16 text-center text-zinc-500"><p>${escHtml(msg)}</p></td></tr>`;
+    }
+
+    function renderSubs(subs) {
+      const tbody = document.getElementById('subs-body');
+      if (!subs.length) {
+        tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-16 text-center">
+          <div class="text-4xl mb-3 opacity-60">📋</div>
+          <p class="text-zinc-500">No submissions yet. <a href="/index.html" class="text-amber-400 hover:text-amber-300 no-underline">Solve a problem!</a></p>
+        </td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = subs.map(s => `
+        <tr class="hover:bg-zinc-800/30 transition-colors">
+          <td class="px-4 py-3">
+            <a href="/submission.html?id=${s.id}" target="_blank"
+               class="font-mono text-xs font-medium text-zinc-200 hover:text-amber-400 no-underline">#${s.id}</a>
+          </td>
+          <td class="px-4 py-3"><a href="/problem.html?id=${s.problem_id}" class="text-amber-400/90 hover:text-amber-400 no-underline text-sm">${s.problem_id}</a></td>
+          <td class="px-4 py-3 font-mono text-xs text-zinc-500">${s.language}</td>
+          <td class="px-4 py-3">${verdictBadge(s.verdict, s.status)}</td>
+          <td class="px-4 py-3 text-xs tabular-nums">
+            ${s.status === 'DONE' ? `${s.cases_passed}/${s.cases_total}` : '<span class="text-zinc-600">—</span>'}
+          </td>
+          <td class="px-4 py-3 text-xs text-zinc-500 tabular-nums">${s.time_ms ? s.time_ms + 'ms' : '—'}</td>
+          <td class="px-4 py-3 text-xs text-zinc-500">${fmtDate(s.created_at)}</td>
+        </tr>
+      `).join('');
+    }
+
+    init();
+  </script>
+</body>
+
+</html>
