@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Books — Hello Bitcoin</title>
+  <meta name="description" content="View all books and practice their coding exercises.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+  <script src="/theme.js"></script>
+  <link rel="stylesheet" href="/style.css">
+</head>
+
+<body class="min-h-full bg-zinc-950 text-zinc-100 font-sans antialiased">
+  <nav class="sticky top-0 z-50 border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-md">
+    <div class="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
+      <a href="/index.html"
+        class="flex items-center gap-2.5 font-bold text-zinc-100 no-underline hover:no-underline shrink-0">
+        <span
+          class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400 text-base border border-amber-500/30">₿</span>
+        <span><span class="text-amber-400">Hello</span> Bitcoin</span>
+      </a>
+      <div class="flex items-center gap-6" id="nav-links"></div>
+      <div id="nav-user" class="shrink-0"></div>
+    </div>
+  </nav>
+
+  <main class="max-w-6xl mx-auto px-4 py-8 pb-16">
+    <header class="mb-8">
+      <h1 class="text-2xl sm:text-3xl font-bold text-zinc-50 tracking-tight">Books</h1>
+      <p class="mt-2 text-zinc-400 text-sm sm:text-base max-w-2xl">
+        Select a book to view its problems.
+      </p>
+    </header>
+
+    <div class="mb-10">
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900/40 shadow-xl shadow-black/20 overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-zinc-800 text-left">
+                <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500 w-12">#</th>
+                <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">Title</th>
+                <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">Author</th>
+              </tr>
+            </thead>
+            <tbody id="books-body" class="divide-y divide-zinc-800/80">
+              <tr>
+                <td colspan="3" class="px-4 py-12 text-center text-zinc-500">
+                  <span class="spinner"></span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/app.js?v=2"></script>
+  <script>
+    async function init() {
+      await renderNav('books');
+
+      const bookRes = await apiGet('/books');
+      let books = [];
+      if (bookRes.ok) {
+        books = await bookRes.json();
+      }
+
+      renderBooks(books);
+    }
+
+    function renderBooks(books) {
+      const tbody = document.getElementById('books-body');
+      if (!books.length) {
+        tbody.innerHTML = `<tr><td colspan="3" class="px-4 py-8 text-center text-zinc-500">No books found.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = books.map((b, i) => `
+        <tr class="hover:bg-zinc-800/30 cursor-pointer transition-colors" onclick="location.href='/book.html?slug=${b.slug}'">
+          <td class="px-4 py-3 text-zinc-500 tabular-nums">${i + 1}</td>
+          <td class="px-4 py-3">
+            <a href="/book.html?slug=${b.slug}" onclick="event.stopPropagation()"
+               class="font-medium text-zinc-100 hover:text-amber-400 no-underline transition-colors">${escHtml(b.title)}</a>
+          </td>
+          <td class="px-4 py-3 text-zinc-500">${escHtml(b.author || '—')}</td>
+        </tr>
+      `).join('');
+    }
+
+    init();
+  </script>
+</body>
+
+</html>

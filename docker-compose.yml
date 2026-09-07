@@ -1,0 +1,114 @@
+version: "3.9"
+
+# ── Shared environment ────────────────────────────────────────────────────────
+x-common-env: &common-env
+  DATABASE_URL: postgresql+asyncpg://oj:oj@db:5432/oj
+  REDIS_URL: redis://redis:6379/0
+  # No fallback — Compose fails at startup if SECRET_KEY is unset in .env / shell.
+  # Generate one with: openssl rand -hex 32
+  SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set (e.g. export SECRET_KEY=$(openssl rand -hex 32))}
+  ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8001}
+  APP_ENV: ${APP_ENV:-development}
+  JUDGE_IMAGE: hello-bitcoin-runner
+  ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+  GLOBAL_MAX_MEMORY_MB: ${GLOBAL_MAX_MEMORY_MB:-7168}
+  # 1024 MB gives rustc enough headroom (typically 400–800 MB needed).
+  # Per-problem time/memory limits are enforced separately inside the sandbox.
+  SANDBOX_MEMORY_MB: ${SANDBOX_MEMORY_MB:-1024}
+  # Secure rate-limit defaults
+  RATE_LIMIT_AUTH: ${RATE_LIMIT_AUTH:-10/minute}
+  RATE_LIMIT_SUBMIT: ${RATE_LIMIT_SUBMIT:-20/minute}
+
+services:
+
+  # ── PostgreSQL ─────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: oj
+      POSTGRES_USER: oj
+      POSTGRES_PASSWORD: oj
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oj"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save "" --appendonly no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── Build the judge sandbox image (shared by api + worker) ────────────────
+  judge-builder:
+    build:
+      context: ./docker
+      dockerfile: Dockerfile.runner
+    image: hello-bitcoin-runner
+    # This service only builds the image; it never runs.
+    entrypoint: ["true"]
+
+  # ── FastAPI web server ─────────────────────────────────────────────────────
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: hello-bitcoin-api
+    ports:
+      - "${API_PORT:-8001}:8001"
+    environment:
+      <<: *common-env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      judge-builder:
+        condition: service_completed_successfully
+    volumes:
+      - ./frontend:/frontend
+    command: >
+      sh -c "
+        python -m alembic upgrade head &&
+        uvicorn main:app --host 0.0.0.0 --port 8001
+      "
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── ARQ judge worker ───────────────────────────────────────────────────────
+  worker:
+    user: root
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: hello-bitcoin-api
+    environment:
+      <<: *common-env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      judge-builder:
+        condition: service_completed_successfully
+    # Worker needs access to the Docker daemon to manage judge containers.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: python -m arq worker.WorkerSettings
+    # Run multiple worker replicas to scale judging horizontally.
+    # To override: docker compose up --scale worker=N
+    deploy:
+      replicas: 1
+
+volumes:
+  postgres_data:

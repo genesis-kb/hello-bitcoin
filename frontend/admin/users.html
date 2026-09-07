@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Users — Admin — Hello Bitcoin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+  <script src="/theme.js"></script>
+  <link rel="stylesheet" href="/style.css">
+</head>
+
+<body class="min-h-full bg-zinc-950 text-zinc-100 font-sans antialiased">
+  <nav class="sticky top-0 z-50 border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-md">
+    <div class="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
+      <a href="/index.html"
+        class="flex items-center gap-2.5 font-bold text-zinc-100 no-underline hover:no-underline shrink-0">
+        <span
+          class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400 text-base border border-amber-500/30">₿</span>
+        <span><span class="text-amber-400">Hello</span> Bitcoin</span>
+      </a>
+      <div class="flex items-center gap-6" id="nav-links"></div>
+      <div id="nav-user" class="shrink-0"></div>
+    </div>
+  </nav>
+
+  <div class="border-b border-amber-500/20 bg-amber-500/5">
+    <div class="max-w-6xl mx-auto px-4 py-2 flex items-center gap-2 text-sm">
+      <span
+        class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500 text-zinc-950">Admin</span>
+      <a href="/admin/index.html" class="text-zinc-500 hover:text-amber-400 no-underline">← Dashboard</a>
+      <span class="text-zinc-700">/</span>
+      <span class="text-zinc-300">Users</span>
+    </div>
+  </div>
+
+  <main class="max-w-6xl mx-auto px-4 py-8 pb-16">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+      <h1 class="text-2xl font-bold text-zinc-50">User Management</h1>
+      <span id="user-count" class="text-sm text-zinc-500"></span>
+    </div>
+    <div id="status-msg" class="min-h-[1.25rem] text-sm mb-3"></div>
+
+    <div class="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-zinc-800 text-left">
+              <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">#</th>
+              <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">Username</th>
+              <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">Email</th>
+              <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">Role</th>
+              <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">Joined</th>
+              <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">Action</th>
+            </tr>
+          </thead>
+          <tbody id="users-body" class="divide-y divide-zinc-800/80">
+            <tr>
+              <td colspan="6" class="px-4 py-12 text-center text-zinc-500"><span class="spinner"></span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <script src="/app.js?v=2"></script>
+  <script>
+    let currentUserId = null;
+
+    async function init() {
+      await renderNav('admin');
+      requireAdmin();
+
+      const me = Auth.getUser();
+      currentUserId = me?.id;
+
+      const res = await apiGet('/admin/users');
+      if (!res.ok) { renderError('Failed to load users.'); return; }
+      const users = await res.json();
+      document.getElementById('user-count').textContent = `${users.length} users`;
+      renderUsers(users);
+    }
+
+    function renderError(msg) {
+      document.getElementById('users-body').innerHTML =
+        `<tr><td colspan="6" class="px-4 py-12 text-center text-zinc-500">${escHtml(msg)}</td></tr>`;
+    }
+
+    function renderUsers(users) {
+      const tbody = document.getElementById('users-body');
+      if (!users.length) {
+        tbody.innerHTML = `<tr><td colspan="6" class="px-4 py-12 text-center text-zinc-500">No users found.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = users.map(u => `
+        <tr id="user-row-${u.id}" class="hover:bg-zinc-800/30 transition-colors">
+          <td class="px-4 py-3 text-xs text-zinc-500">${u.id}</td>
+          <td class="px-4 py-3">
+            <span class="font-medium text-zinc-100">${escHtml(u.username)}</span>
+            ${u.id === currentUserId ? ' <span class="text-[11px] text-zinc-500">(you)</span>' : ''}
+          </td>
+          <td class="px-4 py-3 text-xs text-zinc-500">${escHtml(u.email)}</td>
+          <td class="px-4 py-3">
+            <span class="inline-flex px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${u.role === 'admin' ? 'bg-amber-500/15 text-amber-400' : 'bg-zinc-700/40 text-zinc-400'}">${u.role}</span>
+          </td>
+          <td class="px-4 py-3 text-xs text-zinc-500">${fmtDate(u.created_at)}</td>
+          <td class="px-4 py-3">
+            ${u.id !== currentUserId ? `
+              <button type="button" onclick="toggleRole(${u.id}, '${u.role}')"
+                class="px-2 py-1 rounded border border-zinc-700 text-xs text-zinc-400 hover:text-zinc-200 cursor-pointer">
+                ${u.role === 'admin' ? 'Revoke Admin' : 'Make Admin'}
+              </button>
+            ` : '<span class="text-zinc-600 text-xs">—</span>'}
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    window.toggleRole = async function (userId, currentRole) {
+      const newRole = currentRole === 'admin' ? 'user' : 'admin';
+      const msg = document.getElementById('status-msg');
+
+      const res = await apiPut(`/admin/users/${userId}/role`, { role: newRole });
+      if (res.ok) {
+        const u = await res.json();
+        msg.innerHTML = `<span class="text-emerald-400">✓ ${escHtml(u.username)}'s role updated to <strong>${u.role}</strong>.</span>`;
+        setTimeout(() => { msg.textContent = ''; }, 3000);
+        setTimeout(() => location.reload(), 500);
+      } else {
+        const err = await res.json();
+        msg.innerHTML = `<span class="text-red-400">${escHtml(err.detail || 'Update failed.')}</span>`;
+      }
+    };
+
+    init();
+  </script>
+</body>
+
+</html>

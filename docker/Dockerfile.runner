@@ -1,0 +1,49 @@
+# hello-bitcoin-runner — Custom Judge Container Image
+#
+# Tier 1 Languages: Python 3, JavaScript (Node 20), Rust (stable)
+# Based on Debian Bookworm Slim for full control over runtimes.
+
+FROM debian:bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# ── System base ─────────────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 \
+        python3-pip \
+        curl \
+        ca-certificates \
+        build-essential \
+        gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Node.js 20 (via NodeSource) ──────────────────────────────────────────────
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Rust (stable, minimal profile) ───────────────────────────────────────────
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --default-toolchain stable --profile minimal
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Pre-compile a trivial Rust program so the std library linker cache is warm
+RUN echo 'fn main() { println!("ok"); }' > /tmp/_warm.rs \
+    && rustc /tmp/_warm.rs -o /tmp/_warm --edition 2021 \
+    && /tmp/_warm \
+    && rm /tmp/_warm.rs /tmp/_warm
+
+# ── Python packages (useful for Bitcoin exercises) ───────────────────────────
+RUN pip3 install --break-system-packages six
+
+# ── Runtime sanity check ─────────────────────────────────────────────────────
+RUN python3 --version \
+    && node --version \
+    && rustc --version
+
+# ── Judge harness ─────────────────────────────────────────────────────────────
+RUN mkdir -p /judge
+COPY run.py /judge/run.py
+
+# Keep container alive; code is injected via docker exec
+CMD ["sleep", "infinity"]
