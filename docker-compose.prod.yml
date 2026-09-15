@@ -1,0 +1,90 @@
+x-common-env: &common-env
+  APP_ENV: ${APP_ENV:-production}
+
+  DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set (RDS endpoint, postgresql+asyncpg://)}
+  REDIS_URL: ${REDIS_URL:?REDIS_URL must be set (ElastiCache endpoint)}
+
+  SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set (openssl rand -hex 32)}
+
+  ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?ALLOWED_ORIGINS must be set (e.g. https://oj.example.com)}
+
+  CLIENT_IP_HEADER: ${CLIENT_IP_HEADER:-CF-Connecting-IP}
+
+  JUDGE_IMAGE: ${JUDGE_IMAGE:-hello-bitcoin-runner}
+
+
+  GLOBAL_MAX_MEMORY_MB: ${GLOBAL_MAX_MEMORY_MB:-4096}
+  SANDBOX_MEMORY_MB: ${SANDBOX_MEMORY_MB:-1024}
+
+  RATE_LIMIT_AUTH: ${RATE_LIMIT_AUTH:-10/minute}
+  RATE_LIMIT_SUBMIT: ${RATE_LIMIT_SUBMIT:-20/minute}
+  ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+
+  # ── Build the judge sandbox image ──────────────────────────────────────────
+  judge-builder:
+    build:
+      context: ./docker
+      dockerfile: Dockerfile.runner
+    image: hello-bitcoin-runner
+    entrypoint: ["true"]
+    logging: *default-logging
+
+  # ── FastAPI web server ─────────────────────────────────────────────────────
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: hello-bitcoin-api
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+    volumes:
+      - ./frontend:/frontend:ro
+    command: >
+      sh -c "
+        python -m alembic upgrade head &&
+        uvicorn main:app --host 0.0.0.0 --port 8001
+      "
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    logging: *default-logging
+
+  # ── ARQ judge worker ───────────────────────────────────────────────────────
+  worker:
+    user: root
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: hello-bitcoin-api
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+    depends_on:
+      judge-builder:
+        condition: service_completed_successfully
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: python -m arq worker.WorkerSettings
+    logging: *default-logging
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN:?TUNNEL_TOKEN must be set (Cloudflare Zero Trust → Tunnels)}
+    depends_on:
+      api:
+        condition: service_healthy
+    logging: *default-logging

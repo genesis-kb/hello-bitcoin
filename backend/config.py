@@ -60,6 +60,9 @@ ALLOWED_ORIGINS: list[str] = [
 RATE_LIMIT_AUTH = os.getenv("RATE_LIMIT_AUTH", "10/minute")
 RATE_LIMIT_SUBMIT = os.getenv("RATE_LIMIT_SUBMIT", "20/minute")
 
+
+CLIENT_IP_HEADER = os.getenv("CLIENT_IP_HEADER", "").strip()
+
 # ── Docker judge pool ────────────────────────────────────────────────────────
 JUDGE_IMAGE = os.getenv("JUDGE_IMAGE", "hello-bitcoin-runner")
 
