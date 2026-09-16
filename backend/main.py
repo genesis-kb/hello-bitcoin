@@ -1,5 +1,6 @@
 """FastAPI application entry point."""
 
+import asyncio
 import logging
 import re
 from contextlib import asynccontextmanager
@@ -16,7 +17,14 @@ from sqlalchemy import text
 from arq import create_pool
 from arq.connections import RedisSettings
 
-from config import ALLOWED_ORIGINS, JUDGE_IMAGE, REDIS_URL, RATE_LIMIT_AUTH, RATE_LIMIT_SUBMIT
+from config import (
+    ALLOWED_ORIGINS,
+    JUDGE_IMAGE,
+    REDIS_CONNECT_TIMEOUT,
+    REDIS_URL,
+    RATE_LIMIT_AUTH,
+    RATE_LIMIT_SUBMIT,
+)
 from db import get_db, init_db
 from limiter import limiter
 from routes import auth, problems, submissions, books, conferences, admin as admin_router
@@ -50,7 +58,22 @@ async def lifespan(app: FastAPI):
     logger.info("Connecting to Redis queue (%s)…", _redact_url(REDIS_URL))
     # V2: use from_dsn so credentials, TLS (rediss://), and DB index are preserved.
     redis_settings = RedisSettings.from_dsn(REDIS_URL)
-    app.state.redis_pool = await create_pool(redis_settings)
+    # V3: bound the handshake. arq retries connection *failures*, but a server
+    # that accepts the socket and then stays silent blocks the PING forever,
+    # which reads as a 100%-silent container that never becomes healthy.
+    try:
+        app.state.redis_pool = await asyncio.wait_for(
+            create_pool(redis_settings), timeout=REDIS_CONNECT_TIMEOUT
+        )
+    except asyncio.TimeoutError:
+        logger.error(
+            "Redis handshake to %s timed out after %.0fs. The TCP connection was "
+            "accepted but no reply arrived — check whether the endpoint requires "
+            "TLS (use rediss://) or an auth token.",
+            _redact_url(REDIS_URL),
+            REDIS_CONNECT_TIMEOUT,
+        )
+        raise
     app.state.limiter = limiter
 
     yield

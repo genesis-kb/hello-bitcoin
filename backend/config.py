@@ -76,3 +76,9 @@ JUDGE_POOL_SIZE = max(1, GLOBAL_MAX_MEMORY_MB // SANDBOX_MEMORY_MB)
 
 # ── Redis Queue ───────────────────────────────────────────────────────────────
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+
+# Hard ceiling on the startup handshake with Redis. arq only sets
+# socket_connect_timeout, so a server that accepts the TCP connection but never
+# replies (e.g. a TLS-only ElastiCache endpoint addressed as redis://) leaves
+# the PING waiting forever and the container hangs instead of failing.
+REDIS_CONNECT_TIMEOUT = float(os.getenv("REDIS_CONNECT_TIMEOUT", "15"))
