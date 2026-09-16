@@ -10,7 +10,10 @@ x-common-env: &common-env
 
   CLIENT_IP_HEADER: ${CLIENT_IP_HEADER:-CF-Connecting-IP}
 
-  JUDGE_IMAGE: ${JUDGE_IMAGE:-hello-bitcoin-runner}
+  # Images come from Docker Hub, tagged with the git SHA by the prod-test deploy
+  # workflow. The worker starts sandbox containers from this exact image, so it
+  # is pinned to the same tag as the API and not overridable from .env.
+  JUDGE_IMAGE: ${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME must be set (Docker Hub namespace)}/hello-bitcoin-runner:${IMAGE_TAG:-latest}
 
 
   GLOBAL_MAX_MEMORY_MB: ${GLOBAL_MAX_MEMORY_MB:-4096}
@@ -29,26 +32,20 @@ x-logging: &default-logging
 
 services:
 
-  # ── Build the judge sandbox image ──────────────────────────────────────────
-  judge-builder:
-    build:
-      context: ./docker
-      dockerfile: Dockerfile.runner
-    image: hello-bitcoin-runner
+  # ── Judge sandbox image ────────────────────────────────────────────────────
+  # Never runs; exists so `docker compose pull` fetches the runner image that the
+  # worker launches sandbox containers from through the Docker socket.
+  judge-image:
+    image: ${DOCKERHUB_USERNAME}/hello-bitcoin-runner:${IMAGE_TAG:-latest}
     entrypoint: ["true"]
     logging: *default-logging
 
   # ── FastAPI web server ─────────────────────────────────────────────────────
   api:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    image: hello-bitcoin-api
+    image: ${DOCKERHUB_USERNAME}/hello-bitcoin-api:${IMAGE_TAG:-latest}
     restart: unless-stopped
     environment:
       <<: *common-env
-    volumes:
-      - ./frontend:/frontend:ro
     command: >
       sh -c "
         python -m alembic upgrade head &&
@@ -65,15 +62,15 @@ services:
   # ── ARQ judge worker ───────────────────────────────────────────────────────
   worker:
     user: root
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    image: hello-bitcoin-api
+    image: ${DOCKERHUB_USERNAME}/hello-bitcoin-api:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    # Shutdown stops and removes every warm sandbox container (~5s each);
+    # the default 10s grace would leave them orphaned on redeploy.
+    stop_grace_period: 60s
     environment:
       <<: *common-env
     depends_on:
-      judge-builder:
+      judge-image:
         condition: service_completed_successfully
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

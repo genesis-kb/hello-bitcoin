@@ -58,8 +58,8 @@ services:
   # ── FastAPI web server ─────────────────────────────────────────────────────
   api:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     image: hello-bitcoin-api
     ports:
       - "${API_PORT:-8001}:8001"
@@ -89,8 +89,8 @@ services:
   worker:
     user: root
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     image: hello-bitcoin-api
     environment:
       <<: *common-env

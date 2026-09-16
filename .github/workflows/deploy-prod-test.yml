@@ -1,0 +1,84 @@
+name: Deploy (prod-test)
+
+
+on:
+  push:
+    branches: [prod-test]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Existing image tag (git SHA) to redeploy. Leave empty to build and deploy the branch head."
+        required: false
+        default: ""
+
+concurrency:
+  group: deploy-prod-test
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write 
+
+env:
+  API_IMAGE: ${{ vars.DOCKERHUB_USERNAME }}/hello-bitcoin-api
+  RUNNER_IMAGE: ${{ vars.DOCKERHUB_USERNAME }}/hello-bitcoin-runner
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/prod-test' && inputs.image_tag == ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: backend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.API_IMAGE }}:${{ github.sha }}
+            ${{ env.API_IMAGE }}:latest
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      - name: Build and push judge runner image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./docker
+          file: docker/Dockerfile.runner
+          push: true
+          tags: |
+            ${{ env.RUNNER_IMAGE }}:${{ github.sha }}
+            ${{ env.RUNNER_IMAGE }}:latest
+          cache-from: type=gha,scope=runner
+          cache-to: type=gha,mode=max,scope=runner
+
+  deploy:
+    needs: build
+    if: >-
+      always() && github.ref == 'refs/heads/prod-test' &&
+      (needs.build.result == 'success' || (needs.build.result == 'skipped' && inputs.image_tag != ''))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Redeploy on EC2 via SSM
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag || github.sha }}
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
+        run: .github/scripts/ssm-deploy.sh
