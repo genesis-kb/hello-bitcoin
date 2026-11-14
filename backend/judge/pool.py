@@ -151,6 +151,9 @@ class ContainerPool:
             name=name,
             # Cap process count to prevent fork-bomb from exhausting host PIDs
             pids_limit=64,
+            # Run an init process as PID 1 so processes killed by the harness
+            # cleanup are reaped instead of piling up as zombies against pids_limit.
+            init=True,
         )
 
     async def _replace_container(self, idx: int) -> None:

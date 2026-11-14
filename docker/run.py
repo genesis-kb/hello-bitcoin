@@ -26,6 +26,7 @@ Output JSON fields:
 import json
 import os
 import resource
+import shutil
 import signal
 import subprocess
 import sys
@@ -76,8 +77,21 @@ def run_checker(checker_code: str, test_input: str, user_output: str, expected_o
         return {"verdict": "WA", "score": 0.0, "message": f"Checker error: {exc}"}
 
 
+# Unprivileged user that submitted code runs as (created in Dockerfile.runner).
+# The harness itself stays root so it can read the request, run the checker,
+# and clean up after the submission.
+SANDBOX_UID = 10001
+SANDBOX_GID = 10001
+
+
+def _drop_privileges():
+    os.setgroups([])
+    os.setgid(SANDBOX_GID)
+    os.setuid(SANDBOX_UID)
+
+
 def _make_preexec(memory_limit_mb: int):
-    """Return a preexec_fn that applies RLIMIT_AS and creates a new process group."""
+    """Return a preexec_fn that applies RLIMIT_AS, creates a new process group and drops root."""
     def preexec():
         # V2: memory limit applied here (child process), NOT to the compiler
         limit_bytes = memory_limit_mb * 1024 * 1024
@@ -87,12 +101,55 @@ def _make_preexec(memory_limit_mb: int):
             pass  # Unsupported on some platforms; container mem_limit still applies
         # V3: new process group so we can kill the whole tree on timeout
         os.setsid()
+        _drop_privileges()
     return preexec
 
 
 def _setsid_only():
     """preexec_fn for JS (memory managed by --max-old-space-size, not RLIMIT_AS)."""
     os.setsid()
+    _drop_privileges()
+
+
+def _cleanup_sandbox():
+    """
+    Kill every process the submission left behind and delete its files.
+
+    Containers are reused across submissions, so anything still running as the
+    sandbox user (e.g. a child that escaped the process group with setsid) or any
+    file it wrote to /tmp would otherwise be visible to the next submission.
+    """
+    for _ in range(10):
+        alive = False
+        for pid in os.listdir("/proc"):
+            if not pid.isdigit():
+                continue
+            try:
+                if os.stat(f"/proc/{pid}").st_uid != SANDBOX_UID:
+                    continue
+                with open(f"/proc/{pid}/stat") as f:
+                    if f.read().rsplit(")", 1)[1].split()[0] == "Z":
+                        continue  # already dead, waiting to be reaped
+                os.kill(int(pid), signal.SIGKILL)
+                alive = True
+            except (FileNotFoundError, ProcessLookupError, IndexError):
+                pass
+        if not alive:
+            break
+        time.sleep(0.05)
+
+    for root, dirs, files in os.walk("/tmp", topdown=False):
+        for name in files + dirs:
+            path = os.path.join(root, name)
+            try:
+                if os.lstat(path).st_uid != SANDBOX_UID:
+                    continue
+                if os.path.isdir(path) and not os.path.islink(path):
+                    shutil.rmtree(path, ignore_errors=True)
+                else:
+                    os.remove(path)
+            except FileNotFoundError:
+                pass
 
 
 def main():
@@ -134,6 +191,9 @@ def main():
 
         with open(src_path, "w") as f:
             f.write(source)
+        # The program runs as the sandbox user, which needs to read the source
+        # and may use its working directory.
+        os.chown(tmpdir, SANDBOX_UID, SANDBOX_GID)
 
         # ── Compile if needed ─────────────────────────────────────────────────
         # Compilation runs WITHOUT memory limits (rustc needs more than 256 MB)
@@ -270,4 +330,7 @@ def _out(verdict, stdout="", stderr="", time_ms=0, exit_code=0, memory_kb=0, che
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        _cleanup_sandbox()
