@@ -128,7 +128,7 @@ def _make_preexec(memory_limit_mb: int):
 
 
 def _setsid_only():
-    """preexec_fn for JS: new session and drop root, no RLIMIT_AS (memory is capped by --max-old-space-size)."""
+    """preexec_fn for JS: new session and drop root, no RLIMIT_AS (V8 old-space is capped by --max-old-space-size)."""
     os.setsid()
     _drop_privileges()
 

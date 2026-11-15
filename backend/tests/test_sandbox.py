@@ -3,8 +3,9 @@ Regression tests for judge sandbox isolation (issue #3).
 
 The sandbox tests run real submissions through the harness in a runner
 container created with the same settings as the production pool. All of them
-share one container, the way the pool reuses containers, so anything a run
-leaves behind would show up in a later test. They need Docker and the
+share one container, so anything a run leaves behind would show up in a later
+test. (Unlike the pool, the fixture keeps the container even after an unclean
+run; the tests assert sandbox_clean instead.) They need Docker and the
 hello-bitcoin-runner image, and are skipped if either is missing.
 
 The pool tests at the end use fake containers and need no Docker.
@@ -18,8 +19,9 @@ os.environ.setdefault("JUDGE_POOL_LABEL", "test-sandbox")
 
 import pytest
 
+from judge import runner
 from judge.pool import ContainerPool
-from judge.runner import _exec_code
+from judge.runner import RunResult, _exec_code
 
 SANDBOX_UID = 10001
 
@@ -87,7 +89,7 @@ def test_dev_stdin_and_stdout_still_work(container):
 
 
 def test_request_is_not_visible_to_the_submission(container):
-    """The expected output is not in any process's command line or environment while the submission runs."""
+    """The expected output is not in any process's command line, or in the environment of any process the submission can read."""
     marker = "SECRET_EXPECTED_7f3a"
     # The submission builds the marker from two halves, so the marker never
     # appears in its own source code (which is also in the request).
@@ -169,9 +171,12 @@ def test_files_do_not_survive_to_the_next_submission(container):
         "for top in ('/tmp', '/dev/shm'):\n"
         "    for root, dirs, files in os.walk(top):\n"
         "        names += dirs + files\n"
-        "print(' '.join(names))\n"
+        "print('listing: ' + ' '.join(names))\n"
     )
     res = run(container, second)
+    # The listing includes this run's own work directory, so the verdict is WA;
+    # check that the listing actually ran before trusting the "not in".
+    assert res.exit_code == 0 and res.stdout.startswith("listing:"), res.stderr
     assert "leftover_from_run1" not in res.stdout
 
 
@@ -238,3 +243,46 @@ def test_pool_reuses_clean_container():
     p = asyncio.run(scenario())
     assert not first.stopped
     assert p._containers[0] is first
+
+
+@pytest.mark.parametrize("clean", [False, True])
+def test_run_code_recycles_container_only_when_harness_reports_unclean(monkeypatch, clean):
+    """run_code replaces the container when the harness reports sandbox_clean=False, and keeps it otherwise."""
+    first = _FakeContainer("first")
+    monkeypatch.setattr(runner, "_exec_code", lambda *args: RunResult("AC", sandbox_clean=clean))
+
+    async def scenario():
+        p = _pool_with(first)
+        await p._queue.put(0)
+        await runner.run_code(p, "python3", "print(1)", "")
+        return p
+
+    p = asyncio.run(scenario())
+    assert first.stopped is not clean
+    assert p._containers[0].id == ("first" if clean else "replacement")
+    assert p._queue.qsize() == 1
+
+
+def test_pool_replaces_container_when_run_is_cancelled():
+    """A cancelled run (e.g. an ARQ job timeout) may still be executing, so its container is replaced."""
+    first = _FakeContainer("first")
+
+    async def scenario():
+        p = _pool_with(first)
+        await p._queue.put(0)
+
+        async def job():
+            async with p.acquire():
+                await asyncio.sleep(10)
+
+        task = asyncio.ensure_future(job())
+        await asyncio.sleep(0.01)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        return p
+
+    p = asyncio.run(scenario())
+    assert first.stopped
+    assert p._containers[0].id == "replacement"
+    assert p._queue.qsize() == 1

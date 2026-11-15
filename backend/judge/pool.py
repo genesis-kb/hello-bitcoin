@@ -104,7 +104,10 @@ class ContainerPool:
             if container.status != "running":
                 raise RuntimeError(f"Container {container.short_id} stopped unexpectedly")
             yield container
-        except Exception:
+        except BaseException:
+            # Includes cancellation (e.g. an ARQ job timeout) and the exec
+            # deadline. The harness may still be running the submission, so
+            # the container is not safe to hand to the next run.
             healthy = False
             raise
         finally:
@@ -114,7 +117,7 @@ class ContainerPool:
                 self._tainted.discard(current.id)
                 logger.warning("ContainerPool: recycling container %s (sandbox not clean)", current.short_id)
             if not healthy or tainted:
-                await self._replace_container(idx, force=tainted)
+                await self._replace_container(idx)
             else:
                 await self._queue.put(idx)
 
@@ -168,25 +171,19 @@ class ContainerPool:
             init=True,
         )
 
-    async def _replace_container(self, idx: int, force: bool = False) -> None:
+    async def _replace_container(self, idx: int) -> None:
         """
-        Replace the container at idx and put idx back in the queue.
+        Stop and remove the container at idx, start a fresh one and put idx
+        back in the queue.
 
-        Without force, a container that turns out to be running again is kept.
-        With force (a tainted container), it is always replaced.
+        If the fresh container can't be created, idx is still put back so the
+        pool doesn't shrink. It then points at the removed container, so the
+        next acquire fails its liveness check and tries to replace it again;
+        the old container is never handed out.
         """
         async with self._locks[idx]:
             dead_container = self._containers[idx]
             loop = asyncio.get_running_loop()
-            if not force:
-                try:
-                    await loop.run_in_executor(None, dead_container.reload)
-                    if dead_container.status == "running":
-                        # Another task already replaced or revived it
-                        await self._queue.put(idx)
-                        return
-                except Exception:
-                    pass
 
             try:
                 await loop.run_in_executor(None, _stop_container, dead_container)
@@ -206,11 +203,15 @@ class ContainerPool:
 
 
 def _stop_container(c) -> None:
+    # Remove even if stop fails: remove(force=True) kills a running container.
     try:
         c.stop(timeout=5)
-        c.remove(force=True)
     except Exception:
         pass
+    try:
+        c.remove(force=True)
+    except Exception:
+        logger.warning("ContainerPool: could not remove container %s", getattr(c, "short_id", c))
 
 
 # ── Singleton ─────────────────────────────────────────────────────────────────
