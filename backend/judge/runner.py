@@ -1,10 +1,8 @@
 """Judge runner — executes user code in a container from the pool."""
 
 import asyncio
-import base64
 import json
 import logging
-import uuid
 from dataclasses import dataclass
 
 from .pool import ContainerPool
@@ -25,9 +23,50 @@ class RunResult:
     exit_code: int = 0
     memory_kb: int = 0
     checker_msg: str = ""
+    # True only when the harness confirmed nothing of the submission survived
+    # its cleanup. Anything else means the container should not be reused.
+    sandbox_clean: bool = False
 
 
 # ── Blocking executor (called inside thread pool) ─────────────────────────────
+
+def _demux(data: bytes) -> tuple[bytes, bytes]:
+    """Split Docker's multiplexed exec stream (8-byte frame headers) into stdout/stderr."""
+    out, err, i = bytearray(), bytearray(), 0
+    while i + 8 <= len(data):
+        stream, size = data[i], int.from_bytes(data[i + 4:i + 8], "big")
+        (err if stream == 2 else out).extend(data[i + 8:i + 8 + size])
+        i += 8 + size
+    return bytes(out), bytes(err)
+
+
+def _exec_harness(container, payload: bytes) -> tuple[bytes, bytes]:
+    """
+    Run the judge harness and send it the request on stdin.
+
+    Unlike putting the request in the exec command (sh -c 'echo <base64> ...'),
+    stdin never shows up in /proc/<pid>/cmdline, where submitted code could read
+    the source, expected output and checker of a run.
+    """
+    api = container.client.api
+    exec_id = api.exec_create(
+        container.id, ["python3", "/judge/run.py"],
+        stdin=True, stdout=True, stderr=True,
+    )["Id"]
+    sock = api.exec_start(exec_id, socket=True)
+    raw = getattr(sock, "_sock", sock)
+    raw.settimeout(_EXEC_DEADLINE_SECONDS)
+    try:
+        raw.sendall(payload + b"\n")  # run.py reads exactly one line
+        chunks = []
+        while True:
+            chunk = raw.recv(65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+    finally:
+        sock.close()
+    return _demux(b"".join(chunks))
 
 def _exec_code(
     container,
@@ -42,9 +81,8 @@ def _exec_code(
     """
     Blocking function — run inside asyncio.run_in_executor().
 
-    The request is decoded into /tmp and immediately deleted by run.py
-    before user code is compiled and executed, preventing solution code from
-    accessing hidden test cases or expected outputs.
+    The request (with expected output and checker code) goes to run.py on
+    stdin, so it is never written to /tmp or visible in a process command line.
     """
     try:
         request = {
@@ -56,43 +94,26 @@ def _exec_code(
             "expected_output": expected_output,
             "checker_code": checker_code,
         }
-        req_json = json.dumps(request).encode("utf-8")
-        req_b64 = base64.b64encode(req_json).decode("ascii")
+        req_json = json.dumps(request).encode("utf-8")  # one line: json.dumps escapes newlines
 
-        req_id = uuid.uuid4().hex
-        req_file = f"/tmp/{req_id}.json"
+        raw_stdout, raw_stderr = _exec_harness(container, req_json)
 
-        # Decode into tmpfs /tmp and execute harness.
-        # run.py deletes req_file in its finally block before compiling/running user code.
-        cmd = (
-            f"sh -c 'echo {req_b64} | base64 -d > {req_file} "
-            f"&& python3 /judge/run.py {req_file}'"
-        )
-
-        exit_code, raw_output = container.exec_run(
-            cmd,
-            stdout=True,
-            stderr=True,
-            demux=False,
-        )
-
-        if raw_output is None:
-            raw_output = b""
-
-        text = raw_output.decode("utf-8", errors="replace")
+        text = raw_stdout.decode("utf-8", errors="replace")
         json_start = text.find("{")
         if json_start == -1:
-            return RunResult("RE", stderr=f"Harness produced no JSON. Raw: {text[:300]}")
+            err = raw_stderr.decode("utf-8", errors="replace")
+            return RunResult("RE", stderr=f"Harness produced no JSON. Raw: {(text + err)[:300]}")
 
-        result = json.loads(text[json_start:])
+        result, _ = json.JSONDecoder().raw_decode(text[json_start:])
         return RunResult(
             verdict=result.get("verdict", "RE"),
             stdout=result.get("stdout", ""),
             stderr=result.get("stderr", ""),
             time_ms=result.get("time_ms", 0),
-            exit_code=result.get("exit_code", exit_code or 0),
+            exit_code=result.get("exit_code", 0),
             memory_kb=result.get("memory_kb", 0),
             checker_msg=result.get("checker_msg", ""),
+            sandbox_clean=result.get("sandbox_clean") is True,
         )
 
     except Exception as e:
@@ -131,4 +152,8 @@ async def run_code(
             ),
             timeout=_EXEC_DEADLINE_SECONDS,
         )
+        if not result.sandbox_clean:
+            # Something of this submission may still be in the container
+            # (or we couldn't confirm it isn't); don't hand it to the next run.
+            pool.mark_tainted(container)
         return result

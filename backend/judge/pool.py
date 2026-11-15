@@ -42,6 +42,8 @@ class ContainerPool:
         self._queue: Optional[asyncio.Queue] = None
         self._containers: list = [None] * self.size
         self._locks: list[asyncio.Lock] = []
+        # IDs of containers that must be recycled instead of reused when released
+        self._tainted: set[str] = set()
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -105,10 +107,19 @@ class ContainerPool:
             healthy = False
             raise
         finally:
-            if not healthy:
-                await self._replace_container(idx)
+            current = self._containers[idx]
+            tainted = current is not None and current.id in self._tainted
+            if tainted:
+                self._tainted.discard(current.id)
+                logger.warning("ContainerPool: recycling container %s (sandbox not clean)", current.short_id)
+            if not healthy or tainted:
+                await self._replace_container(idx, force=tainted)
             else:
                 await self._queue.put(idx)
+
+    def mark_tainted(self, container) -> None:
+        """Recycle this container when it is released instead of reusing it."""
+        self._tainted.add(container.id)
 
     # ── Private helpers ───────────────────────────────────────────────────────
 
@@ -156,18 +167,19 @@ class ContainerPool:
             init=True,
         )
 
-    async def _replace_container(self, idx: int) -> None:
+    async def _replace_container(self, idx: int, force: bool = False) -> None:
         async with self._locks[idx]:
             dead_container = self._containers[idx]
             loop = asyncio.get_running_loop()
-            try:
-                await loop.run_in_executor(None, dead_container.reload)
-                if dead_container.status == "running":
-                    # Another task already replaced or revived it
-                    await self._queue.put(idx)
-                    return
-            except Exception:
-                pass
+            if not force:
+                try:
+                    await loop.run_in_executor(None, dead_container.reload)
+                    if dead_container.status == "running":
+                        # Another task already replaced or revived it
+                        await self._queue.put(idx)
+                        return
+                except Exception:
+                    pass
 
             try:
                 await loop.run_in_executor(None, _stop_container, dead_container)

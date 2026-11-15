@@ -2,7 +2,13 @@
 """
 Judge harness — runs INSIDE the Docker container.
 
-Usage: python3 /judge/run.py /tmp/req.json
+Usage: python3 /judge/run.py   (request as one line of JSON on stdin)
+
+The request is read from stdin rather than a file or the command line, so it
+never appears in /proc/<pid>/cmdline or /tmp where submitted code could read it.
+
+The harness must run as root (do not pass user= to docker exec): it switches
+the submitted program to the unprivileged sandbox user and cleans up after it.
 
 Input JSON fields:
   language        : "python3" | "javascript" | "rust"
@@ -21,6 +27,8 @@ Output JSON fields:
   exit_code    : process exit code
   memory_kb    : peak RSS in KB (measured via resource.getrusage)
   checker_msg  : human-readable message from the checker
+  sandbox_clean: False if processes or files of the sandbox user survived the
+                 cleanup; the container should then be recycled, not reused
 """
 
 import json
@@ -85,6 +93,14 @@ SANDBOX_GID = 10001
 
 
 def _drop_privileges():
+    # Popen's stdin/stdout/stderr pipes (fds 0-2) are created by root. Give them
+    # to the sandbox user, or programs that open /dev/stdin or /dev/stdout by path
+    # (e.g. fs.readFileSync('/dev/stdin') in Node) get "permission denied".
+    for fd in (0, 1, 2):
+        try:
+            os.fchown(fd, SANDBOX_UID, SANDBOX_GID)
+        except OSError:
+            pass
     os.setgroups([])
     os.setgid(SANDBOX_GID)
     os.setuid(SANDBOX_UID)
@@ -111,66 +127,84 @@ def _setsid_only():
     _drop_privileges()
 
 
-def _cleanup_sandbox():
+# Locations the sandbox user can write to in the read-only runner container.
+_SANDBOX_WRITABLE_DIRS = ("/tmp", "/dev/shm")
+
+
+def _sandbox_pids():
+    """PIDs of live (non-zombie) processes owned by the sandbox user."""
+    pids = []
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            if os.stat(f"/proc/{pid}").st_uid != SANDBOX_UID:
+                continue
+            with open(f"/proc/{pid}/stat") as f:
+                if f.read().rsplit(")", 1)[1].split()[0] == "Z":
+                    continue  # already dead, waiting to be reaped
+            pids.append(int(pid))
+        except (FileNotFoundError, ProcessLookupError, IndexError):
+            pass
+    return pids
+
+
+def _sandbox_paths():
+    """Files and directories owned by the sandbox user, deepest first."""
+    paths = []
+    for top in _SANDBOX_WRITABLE_DIRS:
+        for root, dirs, files in os.walk(top, topdown=False):
+            for name in files + dirs:
+                path = os.path.join(root, name)
+                try:
+                    if os.lstat(path).st_uid == SANDBOX_UID:
+                        paths.append(path)
+                except FileNotFoundError:
+                    pass
+    return paths
+
+
+def _cleanup_sandbox() -> bool:
     """
     Kill every process the submission left behind and delete its files.
 
     Containers are reused across submissions, so anything still running as the
     sandbox user (e.g. a child that escaped the process group with setsid) or any
-    file it wrote to /tmp would otherwise be visible to the next submission.
+    file it wrote would otherwise be visible to the next submission.
+
+    Returns True if nothing owned by the sandbox user is left.
     """
     for _ in range(10):
-        alive = False
-        for pid in os.listdir("/proc"):
-            if not pid.isdigit():
-                continue
-            try:
-                if os.stat(f"/proc/{pid}").st_uid != SANDBOX_UID:
-                    continue
-                with open(f"/proc/{pid}/stat") as f:
-                    if f.read().rsplit(")", 1)[1].split()[0] == "Z":
-                        continue  # already dead, waiting to be reaped
-                os.kill(int(pid), signal.SIGKILL)
-                alive = True
-            except (FileNotFoundError, ProcessLookupError, IndexError):
-                pass
-        if not alive:
+        pids = _sandbox_pids()
+        if not pids:
             break
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
         time.sleep(0.05)
 
-    for root, dirs, files in os.walk("/tmp", topdown=False):
-        for name in files + dirs:
-            path = os.path.join(root, name)
-            try:
-                if os.lstat(path).st_uid != SANDBOX_UID:
-                    continue
-                if os.path.isdir(path) and not os.path.islink(path):
-                    shutil.rmtree(path, ignore_errors=True)
-                else:
-                    os.remove(path)
-            except FileNotFoundError:
-                pass
+    for path in _sandbox_paths():
+        try:
+            if os.path.isdir(path) and not os.path.islink(path):
+                shutil.rmtree(path, ignore_errors=True)
+            else:
+                os.remove(path)
+        except FileNotFoundError:
+            pass
+
+    return not _sandbox_pids() and not _sandbox_paths()
 
 
 def main():
-    if len(sys.argv) < 2:
-        _out("RE", stderr="Harness: no input file specified.")
-        return
-
-    req_file = sys.argv[1]
+    # V1: the request (including expected_output and checker_code) arrives on
+    # stdin, so it is never written to /tmp or visible in a process command line.
     try:
-        with open(req_file) as f:
-            req = json.load(f)
+        req = json.loads(sys.stdin.readline())
     except Exception as e:
-        _out("RE", stderr=f"Harness: failed to read input: {e}")
+        _out("RE", stderr=f"Harness: failed to read request from stdin: {e}")
         return
-    finally:
-        # V1: delete the request file immediately so submitted code cannot
-        # enumerate /tmp and read expected_output / checker_code.
-        try:
-            os.remove(req_file)
-        except Exception:
-            pass
 
     language        = req.get("language", "python3")
     source          = req.get("source", "")
@@ -317,8 +351,13 @@ def main():
         )
 
 
+# The result is printed only after the sandbox cleanup, so it can report
+# whether the cleanup succeeded.
+_RESULT: dict = {}
+
+
 def _out(verdict, stdout="", stderr="", time_ms=0, exit_code=0, memory_kb=0, checker_msg=""):
-    print(json.dumps({
+    _RESULT.update({
         "verdict": verdict,
         "stdout": stdout,
         "stderr": stderr,
@@ -326,11 +365,15 @@ def _out(verdict, stdout="", stderr="", time_ms=0, exit_code=0, memory_kb=0, che
         "exit_code": exit_code,
         "memory_kb": memory_kb,
         "checker_msg": checker_msg,
-    }), flush=True)
+    })
 
 
 if __name__ == "__main__":
     try:
         main()
     finally:
-        _cleanup_sandbox()
+        clean = _cleanup_sandbox()
+        if not _RESULT:
+            _out("RE", stderr="Harness: no result produced.")
+        _RESULT["sandbox_clean"] = clean
+        print(json.dumps(_RESULT), flush=True)
