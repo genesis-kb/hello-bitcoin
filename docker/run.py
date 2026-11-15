@@ -2,13 +2,14 @@
 """
 Judge harness — runs INSIDE the Docker container.
 
-Usage: python3 /judge/run.py   (request as one line of JSON on stdin)
+Usage: python3 /judge/run.py
+       The request is sent as a single line of JSON on stdin.
 
-The request is read from stdin rather than a file or the command line, so it
-never appears in /proc/<pid>/cmdline or /tmp where submitted code could read it.
+The request is read from stdin instead of a file or a command-line argument,
+so submitted code cannot find it in /tmp or in /proc/<pid>/cmdline.
 
-The harness must run as root (do not pass user= to docker exec): it switches
-the submitted program to the unprivileged sandbox user and cleans up after it.
+The harness must run as root (do not pass user= to docker exec). It starts the
+submitted program as the unprivileged sandbox user and cleans up after it.
 
 Input JSON fields:
   language        : "python3" | "javascript" | "rust"
@@ -27,8 +28,8 @@ Output JSON fields:
   exit_code    : process exit code
   memory_kb    : peak RSS in KB (measured via resource.getrusage)
   checker_msg  : human-readable message from the checker
-  sandbox_clean: False if processes or files of the sandbox user survived the
-                 cleanup; the container should then be recycled, not reused
+  sandbox_clean: true if no process or file of the sandbox user is left after
+                 cleanup; if false, the container must be replaced, not reused
 """
 
 import json
@@ -86,16 +87,21 @@ def run_checker(checker_code: str, test_input: str, user_output: str, expected_o
 
 
 # Unprivileged user that submitted code runs as (created in Dockerfile.runner).
-# The harness itself stays root so it can read the request, run the checker,
+# The harness itself stays root so it can read the request, run the checker
 # and clean up after the submission.
 SANDBOX_UID = 10001
 SANDBOX_GID = 10001
 
 
 def _drop_privileges():
-    # Popen's stdin/stdout/stderr pipes (fds 0-2) are created by root. Give them
-    # to the sandbox user, or programs that open /dev/stdin or /dev/stdout by path
-    # (e.g. fs.readFileSync('/dev/stdin') in Node) get "permission denied".
+    """
+    Switch the current (child) process from root to the sandbox user.
+
+    The stdin/stdout/stderr pipes (fds 0-2) are created by root, so they are
+    handed to the sandbox user first. Otherwise programs that open /dev/stdin
+    or /dev/stdout by path, e.g. fs.readFileSync('/dev/stdin') in Node, fail
+    with "permission denied".
+    """
     for fd in (0, 1, 2):
         try:
             os.fchown(fd, SANDBOX_UID, SANDBOX_GID)
@@ -107,7 +113,7 @@ def _drop_privileges():
 
 
 def _make_preexec(memory_limit_mb: int):
-    """Return a preexec_fn that applies RLIMIT_AS, creates a new process group and drops root."""
+    """Return a preexec_fn that applies RLIMIT_AS, starts a new session and drops root."""
     def preexec():
         # V2: memory limit applied here (child process), NOT to the compiler
         limit_bytes = memory_limit_mb * 1024 * 1024
@@ -122,7 +128,7 @@ def _make_preexec(memory_limit_mb: int):
 
 
 def _setsid_only():
-    """preexec_fn for JS (memory managed by --max-old-space-size, not RLIMIT_AS)."""
+    """preexec_fn for JS: new session and drop root, no RLIMIT_AS (memory is capped by --max-old-space-size)."""
     os.setsid()
     _drop_privileges()
 
@@ -166,11 +172,11 @@ def _sandbox_paths():
 
 def _cleanup_sandbox() -> bool:
     """
-    Kill every process the submission left behind and delete its files.
+    Kill every process the submission left behind and delete the files it wrote.
 
-    Containers are reused across submissions, so anything still running as the
-    sandbox user (e.g. a child that escaped the process group with setsid) or any
-    file it wrote would otherwise be visible to the next submission.
+    Containers are reused across submissions. Without this, a process still
+    running as the sandbox user (e.g. a child that left the process group with
+    setsid) or a file it wrote would still be there for the next submission.
 
     Returns True if nothing owned by the sandbox user is left.
     """
@@ -199,7 +205,7 @@ def _cleanup_sandbox() -> bool:
 
 def main():
     # V1: the request (including expected_output and checker_code) arrives on
-    # stdin, so it is never written to /tmp or visible in a process command line.
+    # stdin, so it is never written to /tmp or shown in a process command line.
     try:
         req = json.loads(sys.stdin.readline())
     except Exception as e:
@@ -225,8 +231,8 @@ def main():
 
         with open(src_path, "w") as f:
             f.write(source)
-        # The program runs as the sandbox user, which needs to read the source
-        # and may use its working directory.
+        # The program runs as the sandbox user, which must be able to read the
+        # source and write to its working directory.
         os.chown(tmpdir, SANDBOX_UID, SANDBOX_GID)
 
         # ── Compile if needed ─────────────────────────────────────────────────
@@ -295,7 +301,9 @@ def main():
                 )
             except subprocess.TimeoutExpired:
                 timed_out = True
-                # V3: kill the entire process group (catches forked children)
+                # V3: kill the entire process group (catches forked children).
+                # Children that left the group with setsid are killed by
+                # _cleanup_sandbox() after the run.
                 try:
                     os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
                 except Exception:
@@ -351,12 +359,13 @@ def main():
         )
 
 
-# The result is printed only after the sandbox cleanup, so it can report
+# The result is printed only after the sandbox cleanup, so it can also report
 # whether the cleanup succeeded.
 _RESULT: dict = {}
 
 
 def _out(verdict, stdout="", stderr="", time_ms=0, exit_code=0, memory_kb=0, checker_msg=""):
+    """Record the result of this run. It is printed as JSON when the harness exits."""
     _RESULT.update({
         "verdict": verdict,
         "stdout": stdout,
@@ -372,6 +381,7 @@ if __name__ == "__main__":
     try:
         main()
     finally:
+        # Clean up even if main() failed, and always print exactly one result.
         clean = _cleanup_sandbox()
         if not _RESULT:
             _out("RE", stderr="Harness: no result produced.")

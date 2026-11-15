@@ -42,7 +42,7 @@ class ContainerPool:
         self._queue: Optional[asyncio.Queue] = None
         self._containers: list = [None] * self.size
         self._locks: list[asyncio.Lock] = []
-        # IDs of containers that must be recycled instead of reused when released
+        # IDs of containers to replace instead of reuse when they are released
         self._tainted: set[str] = set()
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -85,7 +85,8 @@ class ContainerPool:
     async def acquire(self, timeout: float = 10800.0):
         """
         Async context manager. Yields a running container from the pool.
-        On exit, returns the container to the pool (replacing if dead).
+        On exit, returns the container to the pool, or replaces it if it died
+        or was marked tainted.
         """
         try:
             idx = await asyncio.wait_for(self._queue.get(), timeout=timeout)
@@ -118,7 +119,7 @@ class ContainerPool:
                 await self._queue.put(idx)
 
     def mark_tainted(self, container) -> None:
-        """Recycle this container when it is released instead of reusing it."""
+        """Replace this container with a fresh one when it is released, instead of reusing it."""
         self._tainted.add(container.id)
 
     # ── Private helpers ───────────────────────────────────────────────────────
@@ -162,12 +163,18 @@ class ContainerPool:
             name=name,
             # Cap process count to prevent fork-bomb from exhausting host PIDs
             pids_limit=64,
-            # Run an init process as PID 1 so processes killed by the harness
-            # cleanup are reaped instead of piling up as zombies against pids_limit.
+            # Run an init process as PID 1, so processes killed by the harness
+            # cleanup are reaped instead of piling up as zombies under pids_limit.
             init=True,
         )
 
     async def _replace_container(self, idx: int, force: bool = False) -> None:
+        """
+        Replace the container at idx and put idx back in the queue.
+
+        Without force, a container that turns out to be running again is kept.
+        With force (a tainted container), it is always replaced.
+        """
         async with self._locks[idx]:
             dead_container = self._containers[idx]
             loop = asyncio.get_running_loop()

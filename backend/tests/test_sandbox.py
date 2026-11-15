@@ -1,10 +1,13 @@
 """
-Regression tests for judge isolation (issue #3).
+Regression tests for judge sandbox isolation (issue #3).
 
-These run real submissions through the harness inside a runner container
-created with the same settings as the production pool, and reuse that one
-container across tests, like the pool does. They need Docker and the
-hello-bitcoin-runner image; they are skipped otherwise.
+The sandbox tests run real submissions through the harness in a runner
+container created with the same settings as the production pool. All of them
+share one container, the way the pool reuses containers, so anything a run
+leaves behind would show up in a later test. They need Docker and the
+hello-bitcoin-runner image, and are skipped if either is missing.
+
+The pool tests at the end use fake containers and need no Docker.
 """
 
 import asyncio
@@ -20,7 +23,8 @@ from judge.runner import _exec_code
 
 SANDBOX_UID = 10001
 
-# Prints the PIDs of live processes owned by the sandbox user (run as root via exec).
+# Prints the PIDs of live (non-zombie) processes owned by the sandbox user.
+# Run as root with docker exec; the runner image has no ps or pgrep.
 _LIST_SANDBOX_PROCS = (
     "import os\n"
     "for p in os.listdir('/proc'):\n"
@@ -38,6 +42,7 @@ _LIST_SANDBOX_PROCS = (
 
 @pytest.fixture(scope="module")
 def container():
+    """One runner container, created like the pool creates them, shared by all sandbox tests."""
     docker = pytest.importorskip("docker")
     try:
         client = docker.from_env()
@@ -52,15 +57,18 @@ def container():
 
 
 def run(container, source, expected_output="", stdin="", time_limit=2.0, checker_code=""):
+    """Judge a Python submission in the container and return the RunResult."""
     return _exec_code(container, "python3", source, stdin, time_limit, 256, expected_output, checker_code)
 
 
 def sandbox_procs(container):
+    """PIDs of sandbox-user processes still alive in the container."""
     _, out = container.exec_run(["python3", "-c", _LIST_SANDBOX_PROCS])
     return out.decode().split()
 
 
 def test_submission_does_not_run_as_root(container):
+    """Submitted code runs as the sandbox user, not root."""
     res = run(container, "import os\nprint(os.getuid())", expected_output=str(SANDBOX_UID))
     assert res.stdout.strip() == str(SANDBOX_UID)
     assert res.verdict == "AC"
@@ -68,7 +76,7 @@ def test_submission_does_not_run_as_root(container):
 
 
 def test_dev_stdin_and_stdout_still_work(container):
-    # Dropping root must not break programs that open /dev/stdin or /dev/stdout by path.
+    """Dropping root does not break programs that open /dev/stdin or /dev/stdout by path."""
     source = (
         "data = open('/dev/stdin').read().split()\n"
         "with open('/dev/stdout', 'w') as out:\n"
@@ -79,9 +87,10 @@ def test_dev_stdin_and_stdout_still_work(container):
 
 
 def test_request_is_not_visible_to_the_submission(container):
-    # The expected output must not be readable from any process's command line
-    # or environment while the submission runs.
+    """The expected output is not in any process's command line or environment while the submission runs."""
     marker = "SECRET_EXPECTED_7f3a"
+    # The submission builds the marker from two halves, so the marker never
+    # appears in its own source code (which is also in the request).
     source = (
         "import os\n"
         "marker = ('SECRET_' + 'EXPECTED_7f3a').encode()\n"
@@ -102,8 +111,12 @@ def test_request_is_not_visible_to_the_submission(container):
 
 
 def test_detached_child_is_killed_after_timeout(container):
-    # The child keeps stdout open, so the run times out; it also left the
-    # process group with setsid, so the old killpg-on-timeout missed it.
+    """
+    A child that left the process group with setsid is killed after a timeout.
+
+    The child keeps stdout open, so the run times out. Killing the process
+    group alone doesn't reach it, because it is in its own session.
+    """
     source = (
         "import os, time\n"
         "if os.fork() == 0:\n"
@@ -118,8 +131,12 @@ def test_detached_child_is_killed_after_timeout(container):
 
 
 def test_detached_child_is_killed_after_normal_exit(container):
-    # The parent exits normally; the child detaches from stdio and keeps running.
-    # Previously nothing cleaned up after a run that didn't time out.
+    """
+    A detached child is killed even when the run ends normally.
+
+    The parent exits normally, and the child detaches from stdio and keeps
+    running. Nothing used to clean up after a run that didn't time out.
+    """
     source = (
         "import os, time\n"
         "if os.fork() == 0:\n"
@@ -138,6 +155,7 @@ def test_detached_child_is_killed_after_normal_exit(container):
 
 
 def test_files_do_not_survive_to_the_next_submission(container):
+    """Files one run writes to /tmp or /dev/shm are gone by the next run."""
     first = (
         "open('/tmp/leftover_from_run1', 'w').write('x')\n"
         "open('/dev/shm/leftover_from_run1', 'w').write('x')\n"
@@ -157,9 +175,11 @@ def test_files_do_not_survive_to_the_next_submission(container):
     assert "leftover_from_run1" not in res.stdout
 
 
-# ── Pool: containers the harness couldn't confirm clean are recycled ──────────
+# ── Pool: containers the harness couldn't confirm clean are replaced ──────────
 
 class _FakeContainer:
+    """Minimal stand-in for a docker container, enough for ContainerPool.acquire()."""
+
     def __init__(self, cid):
         self.id = cid
         self.short_id = cid
@@ -178,6 +198,7 @@ class _FakeContainer:
 
 
 def _pool_with(first):
+    """A one-slot pool holding `first`, whose replacements are fake containers named 'replacement'."""
     p = ContainerPool(size=1)
     p._queue = asyncio.Queue()
     p._locks = [asyncio.Lock()]
@@ -187,6 +208,7 @@ def _pool_with(first):
 
 
 def test_pool_recycles_tainted_container():
+    """A container marked tainted is stopped and replaced when released."""
     first = _FakeContainer("first")
 
     async def scenario():
@@ -203,6 +225,7 @@ def test_pool_recycles_tainted_container():
 
 
 def test_pool_reuses_clean_container():
+    """A container that wasn't marked tainted goes back to the pool unchanged."""
     first = _FakeContainer("first")
 
     async def scenario():

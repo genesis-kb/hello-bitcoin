@@ -23,8 +23,8 @@ class RunResult:
     exit_code: int = 0
     memory_kb: int = 0
     checker_msg: str = ""
-    # True only when the harness confirmed nothing of the submission survived
-    # its cleanup. Anything else means the container should not be reused.
+    # True only if the harness confirmed that nothing from the submission is
+    # left after its cleanup. Otherwise the container must not be reused.
     sandbox_clean: bool = False
 
 
@@ -42,11 +42,14 @@ def _demux(data: bytes) -> tuple[bytes, bytes]:
 
 def _exec_harness(container, payload: bytes) -> tuple[bytes, bytes]:
     """
-    Run the judge harness and send it the request on stdin.
+    Run the judge harness in the container and send it the request on stdin.
 
-    Unlike putting the request in the exec command (sh -c 'echo <base64> ...'),
-    stdin never shows up in /proc/<pid>/cmdline, where submitted code could read
-    the source, expected output and checker of a run.
+    The request is not put in the exec command, because a process's command
+    line is readable by other processes in /proc/<pid>/cmdline, and that would
+    let submitted code read the expected output and checker. Stdin is not
+    exposed that way.
+
+    Returns the harness's (stdout, stderr).
     """
     api = container.client.api
     exec_id = api.exec_create(
@@ -68,6 +71,7 @@ def _exec_harness(container, payload: bytes) -> tuple[bytes, bytes]:
         sock.close()
     return _demux(b"".join(chunks))
 
+
 def _exec_code(
     container,
     language: str,
@@ -81,8 +85,9 @@ def _exec_code(
     """
     Blocking function — run inside asyncio.run_in_executor().
 
-    The request (with expected output and checker code) goes to run.py on
-    stdin, so it is never written to /tmp or visible in a process command line.
+    The request (including the expected output and checker code) is sent to
+    run.py on stdin, so it is never written to /tmp or shown in a process
+    command line.
     """
     try:
         request = {
@@ -94,7 +99,8 @@ def _exec_code(
             "expected_output": expected_output,
             "checker_code": checker_code,
         }
-        req_json = json.dumps(request).encode("utf-8")  # one line: json.dumps escapes newlines
+        # json.dumps escapes newlines, so the request is always a single line
+        req_json = json.dumps(request).encode("utf-8")
 
         raw_stdout, raw_stderr = _exec_harness(container, req_json)
 
@@ -136,7 +142,7 @@ async def run_code(
     """Acquire a container from the pool and run code + checker asynchronously."""
     loop = asyncio.get_running_loop()  # Correct API for Python 3.10+
     async with pool.acquire() as container:
-        # V3: enforce async deadline on exec_run with wait_for
+        # V3: enforce an overall deadline on the exec with wait_for
         result = await asyncio.wait_for(
             loop.run_in_executor(
                 None,
@@ -153,7 +159,7 @@ async def run_code(
             timeout=_EXEC_DEADLINE_SECONDS,
         )
         if not result.sandbox_clean:
-            # Something of this submission may still be in the container
-            # (or we couldn't confirm it isn't); don't hand it to the next run.
+            # Something from this submission may still be in the container, or
+            # the harness couldn't confirm it isn't. Don't reuse it for the next run.
             pool.mark_tainted(container)
         return result
