@@ -5,6 +5,8 @@ import json
 import logging
 from dataclasses import dataclass
 
+from docker.utils.socket import NPIPE_ENDED
+
 from .pool import ContainerPool
 
 logger = logging.getLogger(__name__)
@@ -63,7 +65,14 @@ def _exec_harness(container, payload: bytes) -> tuple[bytes, bytes]:
         raw.sendall(payload + b"\n")  # run.py reads exactly one line
         chunks = []
         while True:
-            chunk = raw.recv(65536)
+            try:
+                chunk = raw.recv(65536)
+            except Exception as e:
+                # On Windows the Docker connection is a named pipe, which
+                # signals end of output with an error instead of b"".
+                if e.args and e.args[0] == NPIPE_ENDED:
+                    break
+                raise
             if not chunk:
                 break
             chunks.append(chunk)

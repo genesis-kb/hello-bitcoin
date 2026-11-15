@@ -270,13 +270,15 @@ def test_pool_replaces_container_when_run_is_cancelled():
     async def scenario():
         p = _pool_with(first)
         await p._queue.put(0)
+        acquired = asyncio.Event()
 
         async def job():
             async with p.acquire():
+                acquired.set()
                 await asyncio.sleep(10)
 
         task = asyncio.ensure_future(job())
-        await asyncio.sleep(0.01)
+        await asyncio.wait_for(acquired.wait(), timeout=5)  # cancel only while the container is held
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
