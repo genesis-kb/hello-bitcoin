@@ -81,6 +81,29 @@ def _exec_harness(container, payload: bytes) -> tuple[bytes, bytes]:
     return _demux(b"".join(chunks))
 
 
+def _parse_harness_result(text: str):
+    """
+    Return the harness's result dict from its stdout, or None.
+
+    run.py prints its result as the final line of stdout. A checker can print
+    to stdout too (it runs in the harness process), so we can't just take the
+    first '{' — a JSON-shaped diagnostic from the checker would be parsed as the
+    result and could flip the verdict. Instead, scan from the last line and take
+    the last JSON object that looks like a result (has a "verdict").
+    """
+    for line in reversed(text.splitlines()):
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(obj, dict) and "verdict" in obj:
+            return obj
+    return None
+
+
 def _exec_code(
     container,
     language: str,
@@ -114,12 +137,11 @@ def _exec_code(
         raw_stdout, raw_stderr = _exec_harness(container, req_json)
 
         text = raw_stdout.decode("utf-8", errors="replace")
-        json_start = text.find("{")
-        if json_start == -1:
+        result = _parse_harness_result(text)
+        if result is None:
             err = raw_stderr.decode("utf-8", errors="replace")
-            return RunResult("RE", stderr=f"Harness produced no JSON. Raw: {(text + err)[:300]}")
+            return RunResult("RE", stderr=f"Harness produced no result JSON. Raw: {(text + err)[:300]}")
 
-        result, _ = json.JSONDecoder().raw_decode(text[json_start:])
         return RunResult(
             verdict=result.get("verdict", "RE"),
             stdout=result.get("stdout", ""),

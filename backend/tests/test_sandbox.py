@@ -21,7 +21,7 @@ import pytest
 
 from judge import runner
 from judge.pool import ContainerPool
-from judge.runner import RunResult, _exec_code
+from judge.runner import RunResult, _exec_code, _parse_harness_result
 
 SANDBOX_UID = 10001
 
@@ -46,12 +46,12 @@ _LIST_SANDBOX_PROCS = (
 def container():
     """One runner container, created like the pool creates them, shared by all sandbox tests."""
     docker = pytest.importorskip("docker")
+    pool = ContainerPool()
     try:
         client = docker.from_env()
-        client.images.get("hello-bitcoin-runner")
+        client.images.get(pool.image)  # the image the pool (and this fixture) will actually run
     except Exception as exc:
-        pytest.skip(f"Docker or the hello-bitcoin-runner image is not available: {exc}")
-    pool = ContainerPool()
+        pytest.skip(f"Docker or the {pool.image} image is not available: {exc}")
     pool._client = client
     c = pool._create_container(0)
     yield c
@@ -227,6 +227,17 @@ def test_pool_recycles_tainted_container():
     assert first.stopped
     assert p._containers[0].id == "replacement"
     assert p._queue.qsize() == 1
+
+
+def test_harness_result_parsed_from_last_line_not_checker_output():
+    """A JSON-shaped line printed by the checker before the result must not be read as the result."""
+    text = (
+        '{"note": "checker debug", "verdict": "AC"}\n'   # looks like a result, but isn't the last one
+        '{"verdict": "WA", "stdout": "", "sandbox_clean": true}\n'
+    )
+    result = _parse_harness_result(text)
+    assert result["verdict"] == "WA"
+    assert result["sandbox_clean"] is True
 
 
 def test_pool_reuses_clean_container():
