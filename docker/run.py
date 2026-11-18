@@ -2,7 +2,14 @@
 """
 Judge harness — runs INSIDE the Docker container.
 
-Usage: python3 /judge/run.py /tmp/req.json
+Usage: python3 /judge/run.py
+       The request is sent as a single line of JSON on stdin.
+
+The request is read from stdin instead of a file or a command-line argument,
+so submitted code cannot find it in /tmp or in /proc/<pid>/cmdline.
+
+The harness must run as root (do not pass user= to docker exec). It starts the
+submitted program as the unprivileged sandbox user and cleans up after it.
 
 Input JSON fields:
   language        : "python3" | "javascript" | "rust"
@@ -21,11 +28,14 @@ Output JSON fields:
   exit_code    : process exit code
   memory_kb    : peak RSS in KB (measured via resource.getrusage)
   checker_msg  : human-readable message from the checker
+  sandbox_clean: true if no process or file of the sandbox user is left after
+                 cleanup; if false, the container must be replaced, not reused
 """
 
 import json
 import os
 import resource
+import shutil
 import signal
 import subprocess
 import sys
@@ -76,8 +86,34 @@ def run_checker(checker_code: str, test_input: str, user_output: str, expected_o
         return {"verdict": "WA", "score": 0.0, "message": f"Checker error: {exc}"}
 
 
+# Unprivileged user that submitted code runs as (created in Dockerfile.runner).
+# The harness itself stays root so it can read the request, run the checker
+# and clean up after the submission.
+SANDBOX_UID = 10001
+SANDBOX_GID = 10001
+
+
+def _drop_privileges():
+    """
+    Switch the current (child) process from root to the sandbox user.
+
+    The stdin/stdout/stderr pipes (fds 0-2) are created by root, so they are
+    handed to the sandbox user first. Otherwise programs that open /dev/stdin
+    or /dev/stdout by path, e.g. fs.readFileSync('/dev/stdin') in Node, fail
+    with "permission denied".
+    """
+    for fd in (0, 1, 2):
+        try:
+            os.fchown(fd, SANDBOX_UID, SANDBOX_GID)
+        except OSError:
+            pass
+    os.setgroups([])
+    os.setgid(SANDBOX_GID)
+    os.setuid(SANDBOX_UID)
+
+
 def _make_preexec(memory_limit_mb: int):
-    """Return a preexec_fn that applies RLIMIT_AS and creates a new process group."""
+    """Return a preexec_fn that applies RLIMIT_AS, starts a new session and drops root."""
     def preexec():
         # V2: memory limit applied here (child process), NOT to the compiler
         limit_bytes = memory_limit_mb * 1024 * 1024
@@ -87,33 +123,94 @@ def _make_preexec(memory_limit_mb: int):
             pass  # Unsupported on some platforms; container mem_limit still applies
         # V3: new process group so we can kill the whole tree on timeout
         os.setsid()
+        _drop_privileges()
     return preexec
 
 
 def _setsid_only():
-    """preexec_fn for JS (memory managed by --max-old-space-size, not RLIMIT_AS)."""
+    """preexec_fn for JS: new session and drop root, no RLIMIT_AS (V8 old-space is capped by --max-old-space-size)."""
     os.setsid()
+    _drop_privileges()
+
+
+# Locations the sandbox user can write to in the read-only runner container.
+_SANDBOX_WRITABLE_DIRS = ("/tmp", "/dev/shm")
+
+
+def _sandbox_pids():
+    """PIDs of live (non-zombie) processes owned by the sandbox user."""
+    pids = []
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            if os.stat(f"/proc/{pid}").st_uid != SANDBOX_UID:
+                continue
+            with open(f"/proc/{pid}/stat") as f:
+                if f.read().rsplit(")", 1)[1].split()[0] == "Z":
+                    continue  # already dead, waiting to be reaped
+            pids.append(int(pid))
+        except (FileNotFoundError, ProcessLookupError, IndexError):
+            pass
+    return pids
+
+
+def _sandbox_paths():
+    """Files and directories owned by the sandbox user, deepest first."""
+    paths = []
+    for top in _SANDBOX_WRITABLE_DIRS:
+        for root, dirs, files in os.walk(top, topdown=False):
+            for name in files + dirs:
+                path = os.path.join(root, name)
+                try:
+                    if os.lstat(path).st_uid == SANDBOX_UID:
+                        paths.append(path)
+                except FileNotFoundError:
+                    pass
+    return paths
+
+
+def _cleanup_sandbox() -> bool:
+    """
+    Kill every process the submission left behind and delete the files it wrote.
+
+    Containers are reused across submissions. Without this, a process still
+    running as the sandbox user (e.g. a child that left the process group with
+    setsid) or a file it wrote would still be there for the next submission.
+
+    Returns True if nothing owned by the sandbox user is left.
+    """
+    for _ in range(10):
+        pids = _sandbox_pids()
+        if not pids:
+            break
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        time.sleep(0.05)
+
+    for path in _sandbox_paths():
+        try:
+            if os.path.isdir(path) and not os.path.islink(path):
+                shutil.rmtree(path, ignore_errors=True)
+            else:
+                os.remove(path)
+        except FileNotFoundError:
+            pass
+
+    return not _sandbox_pids() and not _sandbox_paths()
 
 
 def main():
-    if len(sys.argv) < 2:
-        _out("RE", stderr="Harness: no input file specified.")
-        return
-
-    req_file = sys.argv[1]
+    # V1: the request (including expected_output and checker_code) arrives on
+    # stdin, so it is never written to /tmp or shown in a process command line.
     try:
-        with open(req_file) as f:
-            req = json.load(f)
+        req = json.loads(sys.stdin.readline())
     except Exception as e:
-        _out("RE", stderr=f"Harness: failed to read input: {e}")
+        _out("RE", stderr=f"Harness: failed to read request from stdin: {e}")
         return
-    finally:
-        # V1: delete the request file immediately so submitted code cannot
-        # enumerate /tmp and read expected_output / checker_code.
-        try:
-            os.remove(req_file)
-        except Exception:
-            pass
 
     language        = req.get("language", "python3")
     source          = req.get("source", "")
@@ -134,6 +231,9 @@ def main():
 
         with open(src_path, "w") as f:
             f.write(source)
+        # The program runs as the sandbox user, which must be able to read the
+        # source and write to its working directory.
+        os.chown(tmpdir, SANDBOX_UID, SANDBOX_GID)
 
         # ── Compile if needed ─────────────────────────────────────────────────
         # Compilation runs WITHOUT memory limits (rustc needs more than 256 MB)
@@ -201,7 +301,9 @@ def main():
                 )
             except subprocess.TimeoutExpired:
                 timed_out = True
-                # V3: kill the entire process group (catches forked children)
+                # V3: kill the entire process group (catches forked children).
+                # Children that left the group with setsid are killed by
+                # _cleanup_sandbox() after the run.
                 try:
                     os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
                 except Exception:
@@ -257,8 +359,14 @@ def main():
         )
 
 
+# The result is printed only after the sandbox cleanup, so it can also report
+# whether the cleanup succeeded.
+_RESULT: dict = {}
+
+
 def _out(verdict, stdout="", stderr="", time_ms=0, exit_code=0, memory_kb=0, checker_msg=""):
-    print(json.dumps({
+    """Record the result of this run. It is printed as JSON when the harness exits."""
+    _RESULT.update({
         "verdict": verdict,
         "stdout": stdout,
         "stderr": stderr,
@@ -266,8 +374,16 @@ def _out(verdict, stdout="", stderr="", time_ms=0, exit_code=0, memory_kb=0, che
         "exit_code": exit_code,
         "memory_kb": memory_kb,
         "checker_msg": checker_msg,
-    }), flush=True)
+    })
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        # Clean up even if main() failed, and always print exactly one result.
+        clean = _cleanup_sandbox()
+        if not _RESULT:
+            _out("RE", stderr="Harness: no result produced.")
+        _RESULT["sandbox_clean"] = clean
+        print(json.dumps(_RESULT), flush=True)
