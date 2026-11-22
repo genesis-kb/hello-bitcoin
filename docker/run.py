@@ -107,6 +107,16 @@ def _drop_privileges():
             os.fchown(fd, SANDBOX_UID, SANDBOX_GID)
         except OSError:
             pass
+    _become_sandbox_user()
+
+
+def _become_sandbox_user():
+    """
+    Switch the current (child) process from root to the sandbox user.
+
+    Used on its own for compilers and syntax checks: their fds are not handed
+    over, since fd 0 there is not a pipe created for the child.
+    """
     os.setgroups([])
     os.setgid(SANDBOX_GID)
     os.setuid(SANDBOX_UID)
@@ -134,23 +144,32 @@ def _setsid_only():
 
 
 # Locations the sandbox user can write to in the read-only runner container.
-_SANDBOX_WRITABLE_DIRS = ("/tmp", "/dev/shm")
+# /dev/mqueue holds POSIX message queues; unlinking a file there deletes the queue.
+_SANDBOX_WRITABLE_DIRS = ("/tmp", "/dev/shm", "/dev/mqueue")
 
 
 def _sandbox_pids():
-    """PIDs of live (non-zombie) processes owned by the sandbox user."""
+    """
+    PIDs of live (non-zombie) processes running as the sandbox user.
+
+    The UIDs are read from /proc/<pid>/status (real, effective, saved and
+    filesystem UID), not inferred from who owns the /proc/<pid> entries: the
+    kernel can show those as root, e.g. for a process that made itself
+    non-dumpable.
+    """
     pids = []
     for pid in os.listdir("/proc"):
         if not pid.isdigit():
             continue
         try:
-            if os.stat(f"/proc/{pid}").st_uid != SANDBOX_UID:
+            with open(f"/proc/{pid}/status") as f:
+                fields = dict(line.split(":", 1) for line in f if ":" in line)
+            if str(SANDBOX_UID) not in fields["Uid"].split():
                 continue
-            with open(f"/proc/{pid}/stat") as f:
-                if f.read().rsplit(")", 1)[1].split()[0] == "Z":
-                    continue  # already dead, waiting to be reaped
+            if fields["State"].split()[0] == "Z":
+                continue  # already dead, waiting to be reaped
             pids.append(int(pid))
-        except (FileNotFoundError, ProcessLookupError, IndexError):
+        except (FileNotFoundError, ProcessLookupError, KeyError, IndexError):
             pass
     return pids
 
@@ -170,13 +189,65 @@ def _sandbox_paths():
     return paths
 
 
+# /proc/sysvipc/<kind> lists the container's SysV IPC objects. These live in
+# the kernel, not in a directory, so they survive the file cleanup above.
+_SYSV_IPC_KINDS = ("shm", "msg", "sem")
+_IPC_RMID = 0
+
+
+def _sandbox_ipc():
+    """SysV IPC objects (kind, id) created by or owned by the sandbox user."""
+    objs = []
+    for kind in _SYSV_IPC_KINDS:
+        try:
+            with open(f"/proc/sysvipc/{kind}") as f:
+                lines = f.read().splitlines()
+        except FileNotFoundError:
+            continue
+        cols = lines[0].split() if lines else []
+        for row in lines[1:]:
+            r = dict(zip(cols, row.split()))
+            if str(SANDBOX_UID) in (r.get("uid"), r.get("cuid")):
+                objs.append((kind, int(row.split()[1])))
+    return objs
+
+
+def _remove_ipc(objs) -> None:
+    """
+    Remove the given SysV IPC objects.
+
+    Only the owner or creator may remove an IPC object (or CAP_SYS_ADMIN,
+    which the container doesn't have), so even root gets EPERM here. The
+    removal runs in a short-lived child that becomes the sandbox user.
+    """
+    if not objs:
+        return
+    pid = os.fork()
+    if pid == 0:
+        try:
+            import ctypes
+            _become_sandbox_user()
+            libc = ctypes.CDLL(None)
+            for kind, ipc_id in objs:
+                if kind == "shm":
+                    libc.shmctl(ipc_id, _IPC_RMID, None)
+                elif kind == "msg":
+                    libc.msgctl(ipc_id, _IPC_RMID, None)
+                else:
+                    libc.semctl(ipc_id, 0, _IPC_RMID)
+        finally:
+            os._exit(0)
+    os.waitpid(pid, 0)
+
+
 def _cleanup_sandbox() -> bool:
     """
     Kill every process the submission left behind and delete the files it wrote.
 
     Containers are reused across submissions. Without this, a process still
     running as the sandbox user (e.g. a child that left the process group with
-    setsid) or a file it wrote would still be there for the next submission.
+    setsid), a file it wrote, or a SysV IPC object it created would still be
+    there for the next submission.
 
     Returns True if nothing owned by the sandbox user is left.
     """
@@ -200,7 +271,10 @@ def _cleanup_sandbox() -> bool:
         except FileNotFoundError:
             pass
 
-    return not _sandbox_pids() and not _sandbox_paths()
+    # After the processes are gone, so nothing recreates them meanwhile.
+    _remove_ipc(_sandbox_ipc())
+
+    return not _sandbox_pids() and not _sandbox_paths() and not _sandbox_ipc()
 
 
 def main():
@@ -236,15 +310,19 @@ def main():
         os.chown(tmpdir, SANDBOX_UID, SANDBOX_GID)
 
         # ── Compile if needed ─────────────────────────────────────────────────
-        # Compilation runs WITHOUT memory limits (rustc needs more than 256 MB)
+        # Compilation runs WITHOUT memory limits (rustc needs more than 256 MB),
+        # but as the sandbox user, like the program itself.
         if language == "rust":
             bin_path = os.path.join(tmpdir, "solution")
             try:
                 cr = subprocess.run(
                     ["rustc", src_path, "-o", bin_path, "--edition", "2021"],
+                    stdin=subprocess.DEVNULL,
                     capture_output=True,
                     text=True,
                     timeout=30,
+                    # Not root: include_str!/include_bytes! read files at compile time
+                    preexec_fn=_become_sandbox_user,
                 )
             except subprocess.TimeoutExpired:
                 _out("CE", stderr="Compilation timed out (>30s).")
@@ -256,7 +334,8 @@ def main():
 
         elif language == "python3":
             # Syntax check first
-            chk = subprocess.run(["python3", "-m", "py_compile", src_path], capture_output=True, text=True)
+            chk = subprocess.run(["python3", "-m", "py_compile", src_path], stdin=subprocess.DEVNULL,
+                                 capture_output=True, text=True, preexec_fn=_become_sandbox_user)
             if chk.returncode != 0:
                 _out("CE", stderr=chk.stderr[:4096])
                 return
@@ -264,7 +343,8 @@ def main():
 
         elif language == "javascript":
             # Syntax check first
-            chk = subprocess.run(["node", "--check", src_path], capture_output=True, text=True)
+            chk = subprocess.run(["node", "--check", src_path], stdin=subprocess.DEVNULL,
+                                 capture_output=True, text=True, preexec_fn=_become_sandbox_user)
             if chk.returncode != 0:
                 _out("CE", stderr=chk.stderr[:4096])
                 return

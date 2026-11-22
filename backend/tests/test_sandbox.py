@@ -25,20 +25,33 @@ from judge.runner import RunResult, _exec_code, _parse_harness_result
 
 SANDBOX_UID = 10001
 
-# Prints the PIDs of live (non-zombie) processes owned by the sandbox user.
+# Prints the PIDs of live (non-zombie) processes running as the sandbox user.
 # Run as root with docker exec; the runner image has no ps or pgrep.
+# Reads the real UIDs from /proc/<pid>/status, not the owner of /proc/<pid>,
+# which shows root for a process that made itself non-dumpable.
 _LIST_SANDBOX_PROCS = (
     "import os\n"
     "for p in os.listdir('/proc'):\n"
     "    if not p.isdigit():\n"
     "        continue\n"
     "    try:\n"
-    f"        if os.stat('/proc/' + p).st_uid != {SANDBOX_UID}:\n"
-    "            continue\n"
-    "        if open('/proc/' + p + '/stat').read().rsplit(')', 1)[1].split()[0] != 'Z':\n"
+    "        f = dict(l.split(':', 1) for l in open('/proc/' + p + '/status') if ':' in l)\n"
+    f"        if '{SANDBOX_UID}' in f['Uid'].split() and f['State'].split()[0] != 'Z':\n"
     "            print(p)\n"
     "    except Exception:\n"
     "        pass\n"
+)
+
+# Prints SysV IPC objects (shared memory, message queues, semaphores) created
+# by or owned by the sandbox user, as "<kind> <id>".
+_LIST_SANDBOX_IPC = (
+    "for kind in ('shm', 'msg', 'sem'):\n"
+    "    lines = open('/proc/sysvipc/' + kind).read().splitlines()\n"
+    "    cols = lines[0].split()\n"
+    "    for row in lines[1:]:\n"
+    "        r = dict(zip(cols, row.split()))\n"
+    f"        if '{SANDBOX_UID}' in (r['uid'], r['cuid']):\n"
+    "            print(kind, row.split()[1])\n"
 )
 
 
@@ -67,6 +80,12 @@ def sandbox_procs(container):
     """PIDs of sandbox-user processes still alive in the container."""
     _, out = container.exec_run(["python3", "-c", _LIST_SANDBOX_PROCS])
     return out.decode().split()
+
+
+def sandbox_ipc(container):
+    """SysV IPC objects of the sandbox user still present in the container."""
+    _, out = container.exec_run(["python3", "-c", _LIST_SANDBOX_IPC])
+    return out.decode().splitlines()
 
 
 def test_submission_does_not_run_as_root(container):
@@ -161,6 +180,7 @@ def test_files_do_not_survive_to_the_next_submission(container):
     first = (
         "open('/tmp/leftover_from_run1', 'w').write('x')\n"
         "open('/dev/shm/leftover_from_run1', 'w').write('x')\n"
+        "open('/dev/mqueue/leftover_from_run1', 'w').close()  # creates a POSIX message queue\n"
         "print('ok')\n"
     )
     assert run(container, first, expected_output="ok").verdict == "AC"
@@ -168,7 +188,7 @@ def test_files_do_not_survive_to_the_next_submission(container):
     second = (
         "import os\n"
         "names = []\n"
-        "for top in ('/tmp', '/dev/shm'):\n"
+        "for top in ('/tmp', '/dev/shm', '/dev/mqueue'):\n"
         "    for root, dirs, files in os.walk(top):\n"
         "        names += dirs + files\n"
         "print('listing: ' + ' '.join(names))\n"
@@ -178,6 +198,59 @@ def test_files_do_not_survive_to_the_next_submission(container):
     # check that the listing actually ran before trusting the "not in".
     assert res.exit_code == 0 and res.stdout.startswith("listing:"), res.stderr
     assert "leftover_from_run1" not in res.stdout
+
+
+def test_non_dumpable_detached_child_is_killed(container):
+    """
+    A detached child is killed even if it made itself non-dumpable.
+
+    A non-dumpable process's /proc/<pid> is owned by root, so the cleanup
+    must not decide whose process it is from the owner of /proc/<pid>.
+    """
+    source = (
+        "import ctypes, os, time\n"
+        "if os.fork() == 0:\n"
+        "    os.setsid()\n"
+        "    ctypes.CDLL(None).prctl(4, 0)  # PR_SET_DUMPABLE = 4\n"
+        "    fd = os.open(os.devnull, os.O_RDWR)\n"
+        "    for i in (0, 1, 2):\n"
+        "        os.dup2(fd, i)\n"
+        "    time.sleep(300)\n"
+        "    os._exit(0)\n"
+        "print('parent done')\n"
+    )
+    res = run(container, source, expected_output="parent done")
+    assert res.verdict == "AC"
+    assert sandbox_procs(container) == []
+    assert res.sandbox_clean
+
+
+def test_sysv_ipc_objects_do_not_survive(container):
+    """SysV shared memory, message queues and semaphores a run creates are removed after it."""
+    source = (
+        "import ctypes\n"
+        "libc = ctypes.CDLL(None)\n"
+        "IPC_CREAT = 0o1000\n"
+        "ids = [libc.shmget(0, 4096, IPC_CREAT | 0o600),\n"
+        "       libc.msgget(0, IPC_CREAT | 0o600),\n"
+        "       libc.semget(0, 1, IPC_CREAT | 0o600)]\n"
+        "print('ok' if min(ids) >= 0 else 'create failed')\n"
+    )
+    res = run(container, source, expected_output="ok")
+    assert res.verdict == "AC", res.stdout + res.stderr  # the objects really were created
+    assert sandbox_ipc(container) == []
+    assert res.sandbox_clean
+
+
+def test_compiler_does_not_run_as_root(container):
+    """
+    rustc runs as the sandbox user, so a submission can't embed a root-only
+    file at compile time with include_str!.
+    """
+    source = 'const S: &str = include_str!("/etc/shadow");\nfn main() { println!("{}", S.len()); }\n'
+    res = _exec_code(container, "rust", source, "", 2.0, 256, "", "")
+    assert res.verdict == "CE"
+    assert "Permission denied" in res.stderr or "permission denied" in res.stderr.lower(), res.stderr
 
 
 # ── Pool: containers the harness couldn't confirm clean are replaced ──────────
