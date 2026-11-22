@@ -41,6 +41,12 @@ RUN python3 --version \
     && node --version \
     && rustc --version
 
+# ── Sandbox user ─────────────────────────────────────────────────────────────
+# Submitted code runs as this unprivileged user; run.py switches to it for each run.
+# The UID/GID must match SANDBOX_UID/SANDBOX_GID in run.py.
+RUN groupadd --gid 10001 sandbox \
+    && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin sandbox
+
 # ── Judge harness ─────────────────────────────────────────────────────────────
 RUN mkdir -p /judge
 COPY run.py /judge/run.py
