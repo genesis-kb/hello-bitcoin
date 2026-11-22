@@ -23,9 +23,13 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Rust (stable, minimal profile) ───────────────────────────────────────────
+# Installed under /usr/local, not /root (mode 0700), because rustc runs as the
+# unprivileged sandbox user.
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH="/usr/local/cargo/bin:${PATH}"
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-      | sh -s -- -y --default-toolchain stable --profile minimal
-ENV PATH="/root/.cargo/bin:${PATH}"
+      | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
 
 # Pre-compile a trivial Rust program so the std library linker cache is warm
 RUN echo 'fn main() { println!("ok"); }' > /tmp/_warm.rs \
