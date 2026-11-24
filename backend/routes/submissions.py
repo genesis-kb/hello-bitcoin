@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import get_current_user, get_user_for_sse
-from config import RATE_LIMIT_SUBMIT
+from config import RATE_LIMIT_SUBMIT, RATE_LIMIT_SSE_TICKET, SSE_MAX_STREAMS_PER_USER
 from limiter import limiter
 from db import AsyncSessionLocal, get_db
 from models import Problem, Submission, User
@@ -23,6 +23,38 @@ router = APIRouter(prefix="/submissions", tags=["submissions"])
 
 _SSE_TICKET_TTL = 60       # seconds — one-time ticket lifetime
 _SSE_TICKET_PREFIX = "sse_ticket:"
+_SSE_COUNT_PREFIX = "sse_active:"
+_SSE_SLOT_TTL = 600        # seconds — safety expiry so a crashed stream can't leak a slot forever
+
+
+async def _acquire_stream_slot(redis, user_id: int) -> bool:
+    """
+    Reserve one of the user's concurrent-stream slots.
+
+    Returns True if a slot was taken (caller must release it), False if the user
+    is already at SSE_MAX_STREAMS_PER_USER. Without Redis (dev/test) there is no
+    shared counter, so streaming is allowed.
+    """
+    if redis is None:
+        return True
+    key = f"{_SSE_COUNT_PREFIX}{user_id}"
+    count = await redis.incr(key)
+    if count == 1:
+        # First slot for this user — set a TTL so a missed decrement can't pin the count.
+        await redis.expire(key, _SSE_SLOT_TTL)
+    if count > SSE_MAX_STREAMS_PER_USER:
+        await redis.decr(key)
+        return False
+    return True
+
+
+async def _release_stream_slot(redis, user_id: int) -> None:
+    if redis is None:
+        return
+    try:
+        await redis.decr(f"{_SSE_COUNT_PREFIX}{user_id}")
+    except Exception:
+        logger.warning("Failed to release SSE slot for user %d", user_id)
 
 
 # ── Submit ────────────────────────────────────────────────────────────────────
@@ -71,6 +103,7 @@ async def submit(
 # ── SSE ticket — short-lived one-time credential for the stream ───────────────
 
 @router.post("/{submission_id}/stream-ticket", status_code=201)
+@limiter.limit(RATE_LIMIT_SSE_TICKET)
 async def create_stream_ticket(
     submission_id: int,
     request: Request,
@@ -132,37 +165,51 @@ async def stream_submission(
     if submission.user_id != current_user.id and current_user.role != "admin":
         raise HTTPException(403, "Access denied.")
 
+    # Cap how many streams one user can hold open at once, so a client can't
+    # open unbounded EventSource connections (each polls the DB every 0.75s).
+    redis = getattr(req.app.state, "redis_pool", None)
+    if not await _acquire_stream_slot(redis, current_user.id):
+        raise HTTPException(
+            429,
+            f"Too many concurrent streams (max {SSE_MAX_STREAMS_PER_USER}). "
+            "Close an existing stream and retry.",
+        )
+
     async def event_generator():
         poll_interval = 0.75  # seconds between DB checks
         max_wait = 300        # 5-minute timeout before giving up
         elapsed = 0.0
 
-        while elapsed < max_wait:
-            async with AsyncSessionLocal() as poll_db:
-                fresh = await poll_db.get(Submission, submission_id)
+        try:
+            while elapsed < max_wait:
+                async with AsyncSessionLocal() as poll_db:
+                    fresh = await poll_db.get(Submission, submission_id)
 
-            if fresh is None:
-                break
+                if fresh is None:
+                    break
 
-            data = {
-                "id": fresh.id,
-                "status": fresh.status,
-                "verdict": fresh.verdict,
-                "score": fresh.score,
-                "cases_total": fresh.cases_total,
-                "cases_passed": fresh.cases_passed,
-                "time_ms": fresh.time_ms,
-                "memory_peak_kb": fresh.memory_peak_kb,
-            }
-            yield f"data: {json.dumps(data)}\n\n"
+                data = {
+                    "id": fresh.id,
+                    "status": fresh.status,
+                    "verdict": fresh.verdict,
+                    "score": fresh.score,
+                    "cases_total": fresh.cases_total,
+                    "cases_passed": fresh.cases_passed,
+                    "time_ms": fresh.time_ms,
+                    "memory_peak_kb": fresh.memory_peak_kb,
+                }
+                yield f"data: {json.dumps(data)}\n\n"
 
-            if fresh.status in ("DONE", "ERROR"):
-                break
+                if fresh.status in ("DONE", "ERROR"):
+                    break
 
-            await asyncio.sleep(poll_interval)
-            elapsed += poll_interval
+                await asyncio.sleep(poll_interval)
+                elapsed += poll_interval
 
-        yield "event: close\ndata: {}\n\n"
+            yield "event: close\ndata: {}\n\n"
+        finally:
+            # Always release the slot — normal close, client disconnect, or error.
+            await _release_stream_slot(redis, current_user.id)
 
     return StreamingResponse(
         event_generator(),

@@ -59,6 +59,22 @@ ALLOWED_ORIGINS: list[str] = [
 # ── Rate Limiting ─────────────────────────────────────────────────────────────
 RATE_LIMIT_AUTH = os.getenv("RATE_LIMIT_AUTH", "10/minute")
 RATE_LIMIT_SUBMIT = os.getenv("RATE_LIMIT_SUBMIT", "20/minute")
+RATE_LIMIT_SSE_TICKET = os.getenv("RATE_LIMIT_SSE_TICKET", "30/minute")
+
+# Trust X-Forwarded-For when deriving the client IP for rate limiting.
+# Enable ONLY when the app runs behind a reverse proxy you control: otherwise a
+# client could spoof the header to dodge limits. When off, the raw socket IP is
+# used (correct for a directly-exposed app, but collapses every client to the
+# proxy IP when there IS a proxy — which is the bug this guards against).
+RATE_LIMIT_TRUST_PROXY = os.getenv("RATE_LIMIT_TRUST_PROXY", "false").lower() in ("1", "true", "yes")
+# Number of trusted proxy hops in front of the app. The client IP is taken this
+# many entries from the right of X-Forwarded-For, so a spoofed left-hand value
+# (appended before the trusted proxies) is ignored.
+RATE_LIMIT_PROXY_HOPS = max(1, int(os.getenv("RATE_LIMIT_PROXY_HOPS", "1")))
+
+# ── SSE ───────────────────────────────────────────────────────────────────────
+# Max concurrent live-status streams a single user may hold open at once.
+SSE_MAX_STREAMS_PER_USER = int(os.getenv("SSE_MAX_STREAMS_PER_USER", "5"))
 
 # ── Docker judge pool ────────────────────────────────────────────────────────
 JUDGE_IMAGE = os.getenv("JUDGE_IMAGE", "hello-bitcoin-runner")
